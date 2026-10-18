@@ -25,6 +25,8 @@ Merging and deleting branches are hard to undo, so this skill first analyses, th
    `gh repo view --json defaultBranchRef,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed`
    It will usually be `master`. From here on it is called the **main branch**.
 
+If any command in this section exits non-zero, stop and tell the user what failed.
+
 ## 2. Merge method
 
 - If the user passed an argument (`$ARGUMENTS` = `merge`, `squash` or `rebase`), use that.
@@ -63,16 +65,16 @@ Besides the open PRs, find remote branches whose code is already in the main bra
 gh pr list --state merged --base <main branch> --limit 100 --json number,headRefName,headRefOid,isCrossRepository,mergedAt
 ```
 
-Group the merged PRs by `headRefName` (one branch can have several) and run this check per candidate branch. This also covers squash merges, which `git branch --merged` does not detect.
+Group the merged PRs by `headRefName` (one branch can have several), ignoring PRs with `isCrossRepository = true` and branches protected by section 5, and run this check per candidate branch. This also covers squash merges, which `git branch --merged` does not detect.
 
-- (a) Run `git ls-remote origin refs/heads/<branch>`. Here and in step 7, "returns nothing" means it exited 0 with empty output: the branch is already gone, skip it. If `ls-remote` itself exits non-zero, that is an error, never 'already gone': in step 4, do not plan a delete for that branch and report it under errors; in step 7, record it as a step-7 error.
+- (a) Run `git ls-remote origin refs/heads/<branch>`. Everywhere in this skill, "returns nothing" means it exited 0 with empty output: the branch is already gone. A non-zero exit is always an error, never 'already gone'. Here, a branch that returns nothing is dropped and not reported; a non-zero exit is a step-4 error: plan no delete for that branch.
 - (b) Take the full 40-character SHA it returns as the **current tip**.
 - (c) The branch is deletable only if one of these holds, checked in this order:
   - first, the tip equals the `headRefOid` of any merged PR from that branch (this covers squash and rebase merges); if so, the branch is deletable and `merge-base` is not run;
   - only otherwise, `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error. Any other exit code (e.g. 128 when the tip object is missing locally) is an error, never 'kept': do not plan a delete for that branch and report it under errors.
 - (d) Otherwise, if neither condition holds and nothing in (a) or (c) was an error, classify the branch as **"has commits after merge — kept"**. Never delete it.
 
-As a supplement, `git branch -r --merged origin/<main branch>` lists the branches merged with a regular merge commit.
+`git branch -r --merged origin/<main branch>` is only a cross-check for regular merge commits: a branch it lists that has no merged PR above is not a candidate and is never deleted.
 
 ## 5. Branches that are NEVER deleted
 
@@ -80,7 +82,7 @@ As a supplement, `git branch -r --merged origin/<main branch>` lists the branche
 - Any branch that is the **base** of another open PR (deleting it would close that PR).
 - Any branch that is the **head** of another open PR.
 - Fork branches (`isCrossRepository = true`): they are not ours, do not touch them.
-- The local branch the user is currently on (`git branch --show-current`); in that case delete only the remote one and mention it.
+- The local branch the user is currently on (`git branch --show-current`), while it is checked out: its remote branch may be deleted in step 7, and its local copy only in step 8.5, after switching away.
 
 Only delete branches of PRs whose base is the **main branch**. If a PR targets another branch (for example, a feature going into `develop`), it is merged but its branch is kept, because its code is not yet in the main branch.
 
@@ -94,12 +96,13 @@ Repo: <owner>/<repo> · main branch: master · method: merge
 To be merged (N):
   #12  Add export endpoint        feature/export @a1b2c3d → master  (branch will be deleted)
   #15  Fix pagination             fix/paging @b2c3d4e     → develop (branch is kept)
+  #17  Update README              docs/readme @e5f6a7b    → master  (branch will be deleted)
 
 Already-merged branches to delete (M):
-  feature/login  @a1b2c3d  (PR #9, merged on 2026-09-10)
+  feature/login  @c3d4e5f  (PR #9, merged on 2026-09-10)
 
 Kept — commits after merge (J):
-  fix/paging  @d4e5f6a  (PR #7 merged @9f8e7d6; tip differs)
+  fix/old-paging  @d4e5f6a  (PR #7 merged @9f8e7d6; tip differs)
 
 Errors (E):
   feature/old  ls-remote failed (exit 128) — no delete planned
@@ -109,75 +112,67 @@ Skipped (K):
   #16  ⚠️ conflicts with master
 ```
 
-Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue without an explicit yes. If there is nothing to merge or delete, say so, list any step-4 errors (the Errors group above), and finish.
+Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue without an explicit yes. Excluded items are not touched. If there is nothing to merge or delete, show the plan without the question and finish.
 
 ## 7. Execute
 
-Merge the PRs in creation order (oldest first). **Before each merge**, query its state again, because merging one PR can cause conflicts or leave the following ones `BEHIND`:
+`<headRefOid>` is the head SHA recorded for the PR in step 3; `<plan sha>` is the full 40-character current tip recorded for the branch in step 4 (b). The plan shows both shortened, for display only. Classify every outcome with the table in section 9; only an **error** in this step stops step 8 from switching branch. Never retry a failed command.
 
-```bash
-gh pr view <n> --json mergeable,mergeStateStatus,headRefOid
-```
+Merge the PRs in creation order (oldest first). For each PR:
 
-If it is no longer ready, or its `headRefOid` differs from the one recorded in step 3, skip it. Note it for the summary as 'not ready' or 'head changed since the plan — not merged'. Never merge a head the user did not see.
+1. Query its state again, because merging one PR can cause conflicts or leave the following ones `BEHIND`: `gh pr view <n> --json mergeable,mergeStateStatus,headRefOid`. If it is no longer ready, or its `headRefOid` differs from `<headRefOid>`, skip it. Never merge a head the user did not see.
+2. `gh pr merge <n> --<method> --match-head-commit <headRefOid>`. Never pass `--delete-branch` (gh deletes the local branch with `git branch -D`). If it exits non-zero, the PR was not merged: do not touch its branch, and run `gh pr view <n> --json headRefOid` once to tell a changed head from another failure.
+3. Only if the PR targets the main branch and its branch is not protected by section 5: run `git ls-remote origin refs/heads/<branch>`; only if it returns `<headRefOid>`, **lease delete** the branch with `<expected sha>` = `<headRefOid>`. PRs to another base and protected branches: leave the branch alone.
 
-**Lease delete.** Every remote delete in this step is `git push --force-with-lease=refs/heads/<branch>:<expected sha> origin --delete <branch>`. Never retry it and never add `--force`. If it exits non-zero for any reason (stale-info rejection, `remote ref does not exist`, or anything else), run `git ls-remote origin refs/heads/<branch>` exactly once:
+Then, for each already-merged branch from step 4, immediately before deleting it run `git ls-remote origin refs/heads/<branch>`; only if it returns `<plan sha>`, **lease delete** it with `<expected sha>` = `<plan sha>`.
 
-- returns nothing (see step 4 (a)) → record 'already gone' (skip);
-- returns a SHA different from `<expected sha>` → record it as kept, using the label given at the call site (skip);
-- returns `<expected sha>`, or the `ls-remote` itself fails → record an error.
+**Lease delete.** `git push --force-with-lease=refs/heads/<branch>:<expected sha> origin --delete <branch>`. Never add `--force`. If it exits non-zero for any reason (stale-info rejection, `remote ref does not exist`, or anything else), the remote delete did not happen: run `git ls-remote origin refs/heads/<branch>` exactly once and classify the result with section 9.
 
-In all of these cases the remote delete did not happen, so do not delete the local branch.
-
-- PR against the main branch and a deletable branch:
-  - `gh pr merge <n> --<method> --match-head-commit <headRefOid>`.
-  - Then run `git ls-remote origin refs/heads/<branch>`. If it returns nothing (see step 4 (a)), the branch is already gone; skip the delete. If the SHA differs from `<headRefOid>`, do not delete it: record it as 'commits pushed after merge — kept' in the summary.
-  - Only if it equals `<headRefOid>`, delete it as a **lease delete** with `<expected sha>` = `<headRefOid>`; kept label: 'commits pushed after merge — kept'.
-  - Never pass `--delete-branch`: gh deletes the local branch with `git branch -D`.
-  - Delete the local branch with `git branch -d <branch>` only if the remote delete happened; if it is the current branch, do it in step 8.5.
-- PR against another branch, or a branch protected by section 5:
-  `gh pr merge <n> --<method> --match-head-commit <headRefOid>`
-
-`<headRefOid>` is the value recorded in step 3. If `gh pr merge` exits non-zero, the PR was not merged: do not retry and do not delete its branch. Run `gh pr view <n> --json headRefOid` once: if the head differs from `<headRefOid>`, record it as skipped ('head changed since the plan — not merged'); otherwise record it as an error.
-
-For the already-merged branches from step 4, immediately before deleting each one run `git ls-remote origin refs/heads/<branch>` again. If it returns nothing (see step 4 (a)), the branch is already gone: record 'already gone' and skip the delete. If the SHA differs from `<plan sha>`, do not delete it: record the branch as "changed since the plan, kept" in the summary.
-
-```bash
-git push --force-with-lease=refs/heads/<branch>:<plan sha> origin --delete <branch>
-git branch -d <branch>      # only if the remote delete succeeded and it exists locally; if it is the current branch, do it in step 8.5; use -d, never -D
-```
-
-This is a **lease delete** with `<expected sha>` = `<plan sha>`, the full 40-character current tip from step 4 (b) (the plan in section 6 shows it shortened for display only); kept label: 'changed since the plan, kept'. Skip the local delete unless the remote delete succeeded.
-
-If `git branch -d` fails because git does not recognise the branch as merged (typical after a squash), do not use `-D` automatically: leave the local branch and mention it in the summary.
-
-Skips — not ready on re-check, head changed (before or at merge time), branch already gone (`ls-remote` exit 0 with empty output), branch kept because its tip moved, or a failed lease delete that the re-check resolved as 'already gone' or kept, or `git branch -d` refusing an unmerged branch — are not errors and do not stop step 8 from switching branch; any other non-zero exit in step 7 (including a lease delete whose re-check still shows the expected SHA, and any `ls-remote` that exits non-zero) is an error: record it, do not retry, and continue with the next PR.
+**Local delete.** Only after a successful remote delete, and only if the branch exists locally (`git rev-parse --verify --quiet refs/heads/<branch>` exits 0). If it is the current branch, leave it for step 8.5. Otherwise run `git branch -d <branch>`. Never use `-D`, not even after `-d` refuses an unmerged branch (typical after a squash).
 
 ## 8. Leave the repo on the main branch
 
-If everything went well (no errors in step 7), leave the local repo on the main branch and up to date:
+If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review. Otherwise (step-4 errors, skips and kept branches do not count):
 
-1. `git status --porcelain` — if there are uncommitted changes, **do not switch branch**: note that it stayed on `<current branch>` because of pending changes and move on to the summary.
-2. `git switch <main branch>`
-3. `git pull --ff-only origin <main branch>` — if it cannot fast-forward (the local master has commits that are not on origin), force nothing: note it and leave the branch as it is.
+1. `git status --porcelain` — if there are uncommitted changes, **do not switch branch**; go to the summary.
+2. `git switch <main branch>` — if it fails, go to the summary.
+3. `git pull --ff-only origin <main branch>` — if it fails (e.g. the local main branch has commits that are not on origin), force nothing, leave the branch as it is and continue.
 4. `git fetch --prune origin`
-5. If in step 7 a local branch was not deleted only because it was the current branch, and its remote branch was deleted in step 7, delete it now with `git branch -d <branch>` (again, never `-D`). If the remote branch was kept or already gone, leave the local branch.
+5. If step 7 left the local copy of the branch you started on only because it was the current branch (its remote was deleted), delete it now with `git branch -d <branch>` (never `-D`).
 
-If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review. Errors from step 4 (an `ls-remote` that exited non-zero or a `merge-base --is-ancestor` exit other than 0 or 1, so no delete was planned) are listed in the section 9 Errors line but do not stop step 8 from switching branch.
-
-If step 8 did not switch branch for any reason (e.g. pending changes in 8.1, a failed `git switch` in 8.2, or errors in step 7), 8.5 does not run: a current branch whose remote was deleted stays locally; list it in the summary as left locally (current branch).
+If step 8 stopped before 8.5 (errors in step 7, 8.1 or 8.2), that local copy stays.
 
 ## 9. Final summary
 
 ```
 ✅ Merged: #12, #15
 🗑️  Deleted branches (remote; local too where it existed, unless listed under Left locally or Errors): feature/export, feature/login
-🛡️  Kept (commits after merge / changed since plan): <branches or none>
+🛡️  Kept (commits after merge / changed since plan): fix/old-paging
 ℹ️  Already gone (remote): <branches or none>
 💻 Left locally: <branch (-d refused) | branch (current branch, not switched) — or none>
 ⏭️  Skipped: #14 (failing checks), #16 (conflicts), #17 (head changed since plan)
-⚠️  Errors: <branch or #n (step 4|7: what failed, e.g. feature/old (step 4: ls-remote exit 128, no delete planned))> — or none
+⚠️  Errors: <#n or branch (step 4|7|8.5: what failed)>, e.g. feature/old (step 4: ls-remote exit 128, no delete planned) — or none
 📍 Current branch: master (up to date with origin)
 ```
 
-Tag each error with its step: step-4 errors do not block the switch in step 8, so they can appear next to a Current branch of master. Local copies of branches listed under Kept or Already gone are not touched. A local copy left behind by an error (step 4, a failed remote delete, or a `git branch -d` failure other than the unmerged refusal) is reported on the Errors line, not under Left locally.
+Every outcome goes on exactly one line, except rows marked `+`: a branch whose remote was deleted is always under Deleted branches, and its local copy may also appear under Left locally or Errors. Local copies are touched only as described in step 7 and 8.5.
+
+| Outcome | Class | Summary line |
+|---|---|---|
+| PR not Ready in step 3, or excluded by the user | skip | Skipped: `#n (<state>)` / `<#n or branch> (excluded)` |
+| Step 4: `ls-remote` returns nothing | — | not reported |
+| Step 4: has commits after merge (`merge-base` exit 1) | kept | Kept |
+| Step 4: `ls-remote` non-zero, or `merge-base` exit other than 0/1 | error (does not block step 8) | Errors (`step 4`) |
+| 7.1: not ready, or head differs from `<headRefOid>` | skip | Skipped: `#n (not ready)` / `#n (head changed since plan)` |
+| 7.2: merged | done | Merged (its branch is listed only if 7.3 ran) |
+| 7.2: non-zero, head now differs from `<headRefOid>` | skip | Skipped: `#n (head changed since plan)` |
+| 7.2: non-zero, head unchanged | error | Errors (`step 7`) |
+| Pre-delete `ls-remote` or lease-delete re-check: returns nothing | skip | Already gone |
+| … returns a different SHA | kept | Kept |
+| … exits non-zero, or the re-check still returns `<expected sha>` | error | Errors (`step 7`) |
+| Lease delete succeeds; no local copy, or `git branch -d` succeeds (step 7 or 8.5) | done | Deleted branches |
+| `git branch -d` refuses: "not fully merged" (step 7 or 8.5) | skip | + Left locally: `<branch> (-d refused)` |
+| `git branch -d` fails for another reason | error | + Errors (`step 7` / `step 8.5`) |
+| Current branch, step 8 stopped before 8.5 | skip | + Left locally: `<branch> (current branch, not switched)` |
+| Any other non-zero exit in step 7 (e.g. `gh pr view`) | error | Errors (`step 7`) |
+| Step 8 | — | Current branch: `<main> (up to date with origin)`, `<main> (not fast-forwarded: <reason>)`, or `<branch> (not switched: uncommitted changes / git switch failed / errors in step 7)`; append `; fetch --prune failed` if the step-8 fetch failed |
