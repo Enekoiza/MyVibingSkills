@@ -24,8 +24,9 @@ Merging and deleting branches are hard to undo, so this skill first analyses, th
 4. Detect the main branch:
    `gh repo view --json defaultBranchRef,mergeCommitAllowed,squashMergeAllowed,rebaseMergeAllowed`
    It will usually be `master`. From here on it is called the **main branch**.
+5. `git branch --show-current` — record the output as the **starting branch** (empty output = detached HEAD: no starting branch).
 
-If any command in this section exits non-zero, stop and tell the user what failed.
+If any command in this section exits non-zero, stop and tell the user what failed. The same applies to any command in steps 3–5 that section 9 gives no other outcome; nothing has been changed yet.
 
 ## 2. Merge method
 
@@ -46,14 +47,16 @@ Classify each PR:
 
 | State | Condition | Action |
 |---|---|---|
-| ✅ Ready | not draft, `mergeable = MERGEABLE`, `mergeStateStatus` is `CLEAN` or `HAS_HOOKS` | Merge |
+| ✅ Ready | not draft, `mergeable = MERGEABLE`, `mergeStateStatus` is `CLEAN` or `HAS_HOOKS`, and no Skip row below matches | Merge |
 | ⏳ Pending checks | any check in `PENDING`/`IN_PROGRESS`/`QUEUED` | Skip |
 | ❌ Failing checks | any check in `FAILURE`/`ERROR`/`CANCELLED`/`TIMED_OUT` | Skip |
 | ⚠️ Conflicts | `mergeable = CONFLICTING` or `mergeStateStatus = DIRTY` | Skip |
 | 🔄 Out of date | `mergeStateStatus = BEHIND` | Skip (say it needs updating with the base branch) |
 | 🔒 Blocked | `mergeStateStatus = BLOCKED` or `reviewDecision = CHANGES_REQUESTED` / `REVIEW_REQUIRED` | Skip |
 | 📝 Draft | `isDraft = true` | Skip |
-| ❓ Unknown | `mergeable = UNKNOWN` | Query once more with `gh pr view <n> --json mergeable,mergeStateStatus` (GitHub computes it in the background); if still unknown, skip |
+| ❓ Unknown | `mergeable = UNKNOWN` | Query once more with `gh pr view <n> --json mergeable,mergeStateStatus` (GitHub computes it in the background) and classify the new values with this table; if still unknown, skip |
+
+When several Skip rows match, show the first one listed.
 
 Never force a merge with `--admin` or by bypassing branch protections.
 
@@ -74,15 +77,13 @@ Group the merged PRs by `headRefName` (one branch can have several), ignoring PR
   - only otherwise, `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error. Any other exit code (e.g. 128 when the tip object is missing locally) is an error, never 'kept': do not plan a delete for that branch and report it under errors.
 - (d) Otherwise, if neither condition holds and nothing in (a) or (c) was an error, classify the branch as **"has commits after merge — kept"**. Never delete it.
 
-`git branch -r --merged origin/<main branch>` is only a cross-check for regular merge commits: a branch it lists that has no merged PR above is not a candidate and is never deleted.
-
 ## 5. Branches that are NEVER deleted
 
 - The main branch and `master`, `main`, `develop`, `dev`, `release/*`, `hotfix/*` when they are long-lived branches of the repo.
 - Any branch that is the **base** of another open PR (deleting it would close that PR).
 - Any branch that is the **head** of another open PR.
 - Fork branches (`isCrossRepository = true`): they are not ours, do not touch them.
-- The local branch the user is currently on (`git branch --show-current`), while it is checked out: its remote branch may be deleted in step 7, and its local copy only in step 8.5, after switching away.
+- The **starting branch** (section 1), while it is checked out: its remote branch may be deleted in step 7, but its local copy, like every local copy, only in step 8.5, after switching away.
 
 Only delete branches of PRs whose base is the **main branch**. If a PR targets another branch (for example, a feature going into `develop`), it is merged but its branch is kept, because its code is not yet in the main branch.
 
@@ -112,7 +113,7 @@ Skipped (K):
   #16  ⚠️ conflicts with master
 ```
 
-Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue without an explicit yes. Excluded items are not touched. If there is nothing to merge or delete, show the plan without the question and finish.
+Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue without an explicit yes. Excluded items are not touched; the user may exclude a PR (no merge, branch kept), only the branch delete of a PR to be merged, or an already-merged branch. If there is nothing to merge or delete, show the plan without the question and finish. If the user cancels or excludes every merge and delete, stop: no step 7, step 8 or summary.
 
 ## 7. Execute
 
@@ -120,27 +121,27 @@ Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue
 
 Merge the PRs in creation order (oldest first). For each PR:
 
-1. Query its state again, because merging one PR can cause conflicts or leave the following ones `BEHIND`: `gh pr view <n> --json mergeable,mergeStateStatus,headRefOid`. If it is no longer ready, or its `headRefOid` differs from `<headRefOid>`, skip it. Never merge a head the user did not see.
-2. `gh pr merge <n> --<method> --match-head-commit <headRefOid>`. Never pass `--delete-branch` (gh deletes the local branch with `git branch -D`). If it exits non-zero, the PR was not merged: do not touch its branch, and run `gh pr view <n> --json headRefOid` once to tell a changed head from another failure.
-3. Only if the PR targets the main branch and its branch is not protected by section 5: run `git ls-remote origin refs/heads/<branch>`; only if it returns `<headRefOid>`, **lease delete** the branch with `<expected sha>` = `<headRefOid>`. PRs to another base and protected branches: leave the branch alone.
+1. Query its state again, because merging one PR can cause conflicts or leave the following ones `BEHIND`: `gh pr view <n> --json mergeable,mergeStateStatus,headRefOid,baseRefName`; if `mergeable = UNKNOWN` (common right after the previous merge), run the same query once more. Skip the PR if its `headRefOid` differs from `<headRefOid>`, its `baseRefName` differs from the base in the plan, or it is no longer ready (ready = `mergeable = MERGEABLE` and `mergeStateStatus` `CLEAN`/`HAS_HOOKS`; still `UNKNOWN` is not ready). Never merge a head, or into a base, the user did not see.
+2. `gh pr merge <n> --<method> --match-head-commit <headRefOid>`. Never pass `--delete-branch` (gh deletes the local branch with `git branch -D`). Then, whatever the exit code, run `gh pr view <n> --json state,headRefOid,baseRefName` once. Exit 0 alone is not a merge: on a base with a merge queue, gh adds the PR to the queue or enables auto-merge and still exits 0. Only exit 0 with `state = MERGED` is merged; in every other case do not touch its branch.
+3. Only if 7.2 merged the PR, the `baseRefName` from 7.2 is the main branch, and its branch is neither protected by section 5 nor excluded: run `git ls-remote origin refs/heads/<branch>`; only if it returns `<headRefOid>`, **lease delete** the branch with `<expected sha>` = `<headRefOid>`. PRs to another base and protected branches: leave the branch alone.
 
 Then, for each already-merged branch from step 4, immediately before deleting it run `git ls-remote origin refs/heads/<branch>`; only if it returns `<plan sha>`, **lease delete** it with `<expected sha>` = `<plan sha>`.
 
 **Lease delete.** `git push --force-with-lease=refs/heads/<branch>:<expected sha> origin --delete <branch>`. Never add `--force`. If it exits non-zero for any reason (stale-info rejection, `remote ref does not exist`, or anything else), the remote delete did not happen: run `git ls-remote origin refs/heads/<branch>` exactly once and classify the result with section 9.
 
-**Local delete.** Only after a successful remote delete, and only if the branch exists locally (`git rev-parse --verify --quiet refs/heads/<branch>` exits 0). If it is the current branch, leave it for step 8.5. Otherwise run `git branch -d <branch>`. Never use `-D`, not even after `-d` refuses an unmerged branch (typical after a squash).
+**Local delete.** Only after a successful remote delete, run `git rev-parse --verify --quiet refs/heads/<branch>`: exit 0 = a local copy exists, record the branch for step 8.5; exit 1 = no local copy (not an error). Never delete local branches in step 7: the remote delete also removes `origin/<branch>`, so `git branch -d` would check against HEAD, which does not have this run's merges yet. Step 8.5 uses `git branch -d`; never `-D`, not even after `-d` refuses an unmerged branch (typical after a squash).
 
 ## 8. Leave the repo on the main branch
 
 If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review. Otherwise (step-4 errors, skips and kept branches do not count):
 
-1. `git status --porcelain` — if there are uncommitted changes, **do not switch branch**; go to the summary.
+1. `git status --porcelain` — if it fails or shows uncommitted changes, **do not switch branch**; go to the summary.
 2. `git switch <main branch>` — if it fails, go to the summary.
 3. `git pull --ff-only origin <main branch>` — if it fails (e.g. the local main branch has commits that are not on origin), force nothing, leave the branch as it is and continue.
 4. `git fetch --prune origin`
-5. If step 7 left the local copy of the branch you started on only because it was the current branch (its remote was deleted), delete it now with `git branch -d <branch>` (never `-D`).
+5. For each branch recorded in step 7 (remote deleted, local copy exists), run `git branch -d <branch>` (never `-D`).
 
-If step 8 stopped before 8.5 (errors in step 7, 8.1 or 8.2), that local copy stays.
+If step 8 stopped before 8.5 (errors in step 7, 8.1 or 8.2), those local copies stay.
 
 ## 9. Final summary
 
@@ -149,30 +150,33 @@ If step 8 stopped before 8.5 (errors in step 7, 8.1 or 8.2), that local copy sta
 🗑️  Deleted branches (remote; local too where it existed, unless listed under Left locally or Errors): feature/export, feature/login
 🛡️  Kept (commits after merge / changed since plan): fix/old-paging
 ℹ️  Already gone (remote): <branches or none>
-💻 Left locally: <branch (-d refused) | branch (current branch, not switched) — or none>
+💻 Left locally: <branch (-d refused) | branch (not switched) — or none>
 ⏭️  Skipped: #14 (failing checks), #16 (conflicts), #17 (head changed since plan)
 ⚠️  Errors: <#n or branch (step 4|7|8.5: what failed)>, e.g. feature/old (step 4: ls-remote exit 128, no delete planned) — or none
 📍 Current branch: master (up to date with origin)
 ```
 
-Every outcome goes on exactly one line, except rows marked `+`: a branch whose remote was deleted is always under Deleted branches, and its local copy may also appear under Left locally or Errors. Local copies are touched only as described in step 7 and 8.5.
+Every outcome goes on exactly one line, except rows marked `+`: a branch whose remote was deleted is always under Deleted branches, and its local copy may also appear under Left locally or Errors; a PR merged with its branch delete excluded is under Merged and its branch under Skipped. Local copies are deleted only in step 8.5.
 
 | Outcome | Class | Summary line |
 |---|---|---|
-| PR not Ready in step 3, or excluded by the user | skip | Skipped: `#n (<state>)` / `<#n or branch> (excluded)` |
+| Non-zero exit in sections 1–5 with no other row (e.g. `gh pr list`, the step-3 Unknown re-query, `git branch --show-current`) | stop | no summary: say what failed; nothing was changed |
+| User cancels, or excludes every merge and delete | stop | no summary: say nothing was changed |
+| PR not Ready in step 3, or excluded by the user | skip | Skipped: `#n (<state>)` / `<#n or branch> (excluded)` (`+` when only a merged PR's branch delete is excluded) |
 | Step 4: `ls-remote` returns nothing | — | not reported |
 | Step 4: has commits after merge (`merge-base` exit 1) | kept | Kept |
 | Step 4: `ls-remote` non-zero, or `merge-base` exit other than 0/1 | error (does not block step 8) | Errors (`step 4`) |
-| 7.1: not ready, or head differs from `<headRefOid>` | skip | Skipped: `#n (not ready)` / `#n (head changed since plan)` |
-| 7.2: merged | done | Merged (its branch is listed only if 7.3 ran) |
+| 7.1: head differs, else base differs, else not ready (first that applies) | skip | Skipped: `#n (head changed since plan)` / `#n (base changed since plan)` / `#n (not ready)` |
+| 7.2: exit 0 and `state = MERGED` | done | Merged (its branch is listed only if 7.3 ran) |
+| 7.2: exit 0, `state` not `MERGED` (queued or auto-merge enabled) | skip | Skipped: `#n (queued / auto-merge enabled, branch kept)` |
 | 7.2: non-zero, head now differs from `<headRefOid>` | skip | Skipped: `#n (head changed since plan)` |
 | 7.2: non-zero, head unchanged | error | Errors (`step 7`) |
 | Pre-delete `ls-remote` or lease-delete re-check: returns nothing | skip | Already gone |
 | … returns a different SHA | kept | Kept |
 | … exits non-zero, or the re-check still returns `<expected sha>` | error | Errors (`step 7`) |
-| Lease delete succeeds; no local copy, or `git branch -d` succeeds (step 7 or 8.5) | done | Deleted branches |
-| `git branch -d` refuses: "not fully merged" (step 7 or 8.5) | skip | + Left locally: `<branch> (-d refused)` |
-| `git branch -d` fails for another reason | error | + Errors (`step 7` / `step 8.5`) |
-| Current branch, step 8 stopped before 8.5 | skip | + Left locally: `<branch> (current branch, not switched)` |
-| Any other non-zero exit in step 7 (e.g. `gh pr view`) | error | Errors (`step 7`) |
-| Step 8 | — | Current branch: `<main> (up to date with origin)`, `<main> (not fast-forwarded: <reason>)`, or `<branch> (not switched: uncommitted changes / git switch failed / errors in step 7)`; append `; fetch --prune failed` if the step-8 fetch failed |
+| Lease delete succeeds; no local copy (`rev-parse` exit 1), or `git branch -d` succeeds in 8.5 | done | Deleted branches |
+| `git branch -d` refuses: "not fully merged" (8.5) | skip | + Left locally: `<branch> (-d refused)` |
+| `git rev-parse` exits other than 0/1 (step 7), or `git branch -d` fails for another reason (8.5) | error | + Errors (`step 7` / `step 8.5`) |
+| Local copy recorded in step 7, step 8 stopped before 8.5 | skip | + Left locally: `<branch> (not switched)` |
+| Any other non-zero exit in step 7 not covered above (e.g. a `gh pr view`) | error | Errors (`step 7`) |
+| Step 8 | — | Current branch: `<main> (up to date with origin)`, `<main> (not fast-forwarded: <reason>)`, or `<branch> (not switched: uncommitted changes / git status failed / git switch failed / errors in step 7)`; append `; fetch --prune failed` if the step-8 fetch failed |
