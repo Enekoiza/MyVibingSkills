@@ -118,10 +118,18 @@ gh pr view <n> --json mergeable,mergeStateStatus,headRefOid
 
 If it is no longer ready, or its `headRefOid` differs from the one recorded in step 3, skip it. Note it for the summary as 'not ready' or 'head changed since the plan — not merged'. Never merge a head the user did not see.
 
+**Lease delete.** Every remote delete in this step is `git push --force-with-lease=refs/heads/<branch>:<expected sha> origin --delete <branch>`. Never retry it and never add `--force`. If it exits non-zero for any reason (stale-info rejection, `remote ref does not exist`, or anything else), run `git ls-remote --heads origin <branch>` exactly once:
+
+- returns nothing → record 'already gone' (skip);
+- returns a SHA different from `<expected sha>` → record it as kept, using the label given at the call site (skip);
+- returns `<expected sha>`, or the `ls-remote` itself fails → record an error.
+
+In all of these cases the remote delete did not happen, so do not delete the local branch.
+
 - PR against the main branch and a deletable branch:
   - `gh pr merge <n> --<method> --match-head-commit <headRefOid>`.
   - Then run `git ls-remote --heads origin <branch>`. If it returns nothing, the branch is already gone; skip the delete. If the SHA differs from `<headRefOid>`, do not delete it: record it as 'commits pushed after merge — kept' in the summary.
-  - Only if it equals `<headRefOid>`, delete it with a lease, so the server refuses if the tip moves in the meantime: `git push --force-with-lease=refs/heads/<branch>:<headRefOid> origin --delete <branch>`. If the push is rejected as stale info, do not retry and never add `--force`. Run `git ls-remote --heads origin <branch>` once more: if it returns nothing, record 'already gone'; otherwise record 'commits pushed after merge — kept'. In both cases the remote delete did not happen.
+  - Only if it equals `<headRefOid>`, delete it as a **lease delete** with `<expected sha>` = `<headRefOid>`; kept label: 'commits pushed after merge — kept'.
   - Never pass `--delete-branch`: gh deletes the local branch with `git branch -D`.
   - Delete the local branch with `git branch -d <branch>` only if the remote delete happened; if it is the current branch, do it in step 8.5.
 - PR against another branch, or a branch protected by section 5:
@@ -136,11 +144,11 @@ git push --force-with-lease=refs/heads/<branch>:<plan sha> origin --delete <bran
 git branch -d <branch>      # only if the remote delete succeeded and it exists locally; use -d, never -D
 ```
 
-`<plan sha>` is the tip shown in the plan (step 4 (b)). If the push is rejected as stale info, do not retry and never add `--force`: record the branch as "changed since the plan, kept" (or "already gone" if a new `git ls-remote` returns nothing) and skip its local delete.
+This is a **lease delete** with `<expected sha>` = `<plan sha>`, the tip shown in the plan (step 4 (b)); kept label: 'changed since the plan, kept'. Skip the local delete unless the remote delete succeeded.
 
 If `git branch -d` fails because git does not recognise the branch as merged (typical after a squash), do not use `-D` automatically: leave the local branch and mention it in the summary.
 
-Skips — not ready on re-check, head changed (before or at merge time), branch already gone, branch kept because its tip moved (including a stale-info lease rejection), or `git branch -d` refusing an unmerged branch — are not errors and do not stop step 8 from switching branch; any other non-zero exit in step 7 is an error: record it, do not retry, and continue with the next PR.
+Skips — not ready on re-check, head changed (before or at merge time), branch already gone, branch kept because its tip moved, or a failed lease delete that the re-check resolved as 'already gone' or kept, or `git branch -d` refusing an unmerged branch — are not errors and do not stop step 8 from switching branch; any other non-zero exit in step 7 (including a lease delete whose re-check still shows the expected SHA) is an error: record it, do not retry, and continue with the next PR.
 
 ## 8. Leave the repo on the main branch
 
