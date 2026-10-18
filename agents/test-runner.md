@@ -53,6 +53,8 @@ If you genuinely believe a test should be removed or relaxed, stop and say so in
 
 ## 5. Fix
 
+If the caller asks for report-only mode, do not edit or write any file. Diagnose as in section 3 and put each fix you would make under `Proposed fixes:` in the report (file:line, one line on the change, why).
+
 - Make the **smallest change that addresses the root cause**. No opportunistic refactors, no reformatting, no renaming.
 - Match the conventions already present in the file you're editing.
 - Re-run the affected tests after each fix, then the full suite once at the end.
@@ -68,6 +70,9 @@ Result: X passed, Y failed, Z skipped  (was: A passed, B failed)
 
 Fixed:
 - <test name> — root cause: <one line>. Changed: <file:line, one line>
+
+Proposed fixes (report-only mode only):
+- <test name> — <file:line, one line on the change, why>
 
 Still failing:
 - <test name> — <why, and what you need to proceed>

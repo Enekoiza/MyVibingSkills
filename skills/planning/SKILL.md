@@ -126,8 +126,11 @@ Strict rules:
   explain the deviation, and ask for confirmation on the adjustment before continuing.
 - When implementation is finished, if the project has a test suite, use the
   `test-runner` subagent to verify it still passes before considering the task
-  closed. If it reports failures or changes that require your decision, present
-  them and wait before closing the task. If the `test-runner` subagent is not
+  closed. Dispatch it in **report-only mode**: the prompt must say explicitly
+  to run the suite, diagnose failures, not edit any file, and list proposed
+  fixes. If it reports failures or proposed fixes, present them to the user as
+  **deviations from the approved plan**, under the same rule as the preceding
+  deviation bullet, and apply none of them without explicit confirmation. If the `test-runner` subagent is not
   available, say so instead of running the suite yourself in the main context.
   If the project has no tests, say so.
 - Summarize what was done, mapping it against the plan's steps, including the

@@ -1,6 +1,6 @@
 ---
 name: fix
-description: Plans a fix with Opus 5.5 (medium effort), implements it with Sonnet 5.5 (medium effort), pushes, opens a PR if there is none, then loops through pr-auditor until the audit comes back clean.
+description: Plans a fix with Opus 5.5 (medium effort), implements it with Sonnet 5.5 (medium effort), pushes, opens a PR if there is none, then loops through pr-auditor until the audit reports no critical findings and no warnings.
 argument-hint: [what to fix — leave empty to use the previous message]
 allowed-tools: Read, Grep, Glob, Bash, Agent, TodoWrite
 model: claude-sonnet-5-5
@@ -10,7 +10,7 @@ disable-model-invocation: true
 
 # Fix
 
-Closed loop: plan → implement → push → PR → audit → repeat until `pr-auditor` reports nothing.
+Closed loop: plan → implement → push → PR → audit → repeat until `pr-auditor` reports 0 🔴 critical and 0 🟡 warnings.
 
 You are the **orchestrator**. You do not write production code yourself and you do not plan the
 fix yourself: the `fix-planner` subagent plans (Opus 5.5, medium effort) and the `fix-implementer`
@@ -97,6 +97,16 @@ When it returns:
   containing the fault description, the plan summary and a "pending audit" note. Draft on purpose
   — the PR should not reach a reviewer before the audit is clean.
 
+```bash
+gh pr create --draft --title '<title>' --body-file - <<'EOF'
+<body>
+EOF
+```
+
+- The body goes through a quoted heredoc, so backticks and `$` are passed literally. Never put the body inside double quotes.
+- The title is single-quoted. Write any `'` in it as `'\''`.
+- The `EOF` terminator must not appear on a line of its own in the body.
+
 ## Phase 6 — Audit (`pr-auditor`)
 
 Invoke the `pr-auditor` subagent against the PR number, or against `git diff <base>...HEAD` when
@@ -108,7 +118,9 @@ there is no PR. Then classify what it returns:
 | 🟡 Warning | New iteration — back to Phase 2 |
 | 🔵 Suggestion | Reported to the user, **not** fixed automatically |
 | 📦 Dependencies | Reported to the user, not fixed automatically |
-| Nothing | Loop ends — go to Phase 7 |
+| No 🔴 and no 🟡 (🔵/📦 may remain) | Loop ends — go to Phase 7 |
+
+The loop ends on the critical and warning counts from the auditor's `Result:` line alone; suggestions never trigger another iteration, so `CLEAN` is not required.
 
 Each new iteration carries **only the new findings** into the planner, never the whole report
 again.

@@ -5,16 +5,18 @@ argument-hint: "[path | 'diff' | 'staged' | 'since <ref>' | empty = whole projec
 model: claude-opus-5-5
 effort: high
 disable-model-invocation: true
-allowed-tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git status *), Bash(git ls-files *)
+allowed-tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git status *), Bash(git ls-files *), Bash(sort *), Bash(uniq *), Bash(head *), Bash(true)
 ---
 
 # /audit — deep code audit
 
 ## Repository context
 
-- Branch and dirty state: !`git status --short --branch`
-- Recent commits: !`git log --oneline -15`
-- Files changed in the last 20 commits: !`git log --name-only --pretty=format: -20 | sort | uniq -c | sort -rn | head -30`
+- Branch and dirty state: !`git status --short --branch || true`
+- Recent commits: !`git log --oneline -15 || true`
+- Files changed in the last 20 commits: !`git log --name-only --pretty=format: -20 | sort | uniq -c | sort -rn | head -30 || true`
+
+If these lines show a git error (not a git repository, or no commits yet), there is no git context: audit a path or the whole project by reading the files directly, and for `diff`, `staged` or `since <ref>` say that git is required and stop.
 
 ## Scope
 

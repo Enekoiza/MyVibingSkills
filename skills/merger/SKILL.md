@@ -5,7 +5,7 @@ argument-hint: "[merge|squash|rebase]"
 model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
-allowed-tools: Bash(gh auth status:*), Bash(gh repo view:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh pr checks:*), Bash(gh api:*), Bash(git fetch:*), Bash(git branch:*), Bash(git status:*), Bash(git rev-parse:*), Bash(git ls-remote:*), Bash(git switch:*), Bash(git pull --ff-only:*)
+allowed-tools: Bash(gh auth status:*), Bash(gh repo view:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh pr checks:*), Bash(git fetch:*), Bash(git branch -r *), Bash(git branch --show-current*), Bash(git branch -d *), Bash(git merge-base --is-ancestor *), Bash(git status:*), Bash(git rev-parse:*), Bash(git ls-remote:*), Bash(git switch:*), Bash(git pull --ff-only:*)
 ---
 
 # Merger
@@ -58,10 +58,17 @@ Never force a merge with `--admin` or by bypassing branch protections.
 Besides the open PRs, find remote branches whose code is already in the main branch but which still exist:
 
 ```bash
-gh pr list --state merged --base <main branch> --limit 100 --json number,headRefName,isCrossRepository,mergedAt
+gh pr list --state merged --base <main branch> --limit 100 --json number,headRefName,headRefOid,isCrossRepository,mergedAt
 ```
 
-For each one, check that the branch still exists on origin (`git ls-remote --heads origin <branch>`). This also covers squash merges, which `git branch --merged` does not detect.
+Group the merged PRs by `headRefName` (one branch can have several) and run this check per candidate branch. This also covers squash merges, which `git branch --merged` does not detect.
+
+- (a) Run `git ls-remote --heads origin <branch>`. If it returns nothing, the branch is already gone: skip it.
+- (b) Take the SHA it returns as the **current tip**.
+- (c) The branch is deletable only if one of these holds:
+  - the tip equals the `headRefOid` of any merged PR from that branch (this covers squash and rebase merges);
+  - `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error.
+- (d) Otherwise, classify the branch as **"has commits after merge — kept"**. Never delete it.
 
 As a supplement, `git branch -r --merged origin/<main branch>` lists the branches merged with a regular merge commit.
 
@@ -87,7 +94,10 @@ To be merged (N):
   #15  Fix pagination             fix/paging            → develop (branch is kept)
 
 Already-merged branches to delete (M):
-  feature/login   (PR #9, merged on 2026-09-10)
+  feature/login  @a1b2c3d  (PR #9, merged on 2026-09-10)
+
+Kept — commits after merge (J):
+  fix/paging  @d4e5f6a  (PR #7 merged @9f8e7d6; tip differs)
 
 Skipped (K):
   #14  ❌ failing checks (build)
@@ -106,12 +116,16 @@ gh pr view <n> --json mergeable,mergeStateStatus
 
 If it is no longer ready, skip it and note it for the summary.
 
-- PR against the main branch and a deletable branch:
+- PR against the main branch, deletable branch, and the PR head is NOT the current branch (`git branch --show-current`):
   `gh pr merge <n> --<method> --delete-branch`
+- PR against the main branch, deletable branch, and the PR head IS the current branch:
+  run `gh pr merge <n> --<method>` without `--delete-branch`, then `git push origin --delete <branch>`.
+  `--delete-branch` would switch the working copy to the base branch and force-delete the local branch.
+  The local branch is handled later in step 8.5.
 - PR against another branch, or a branch protected by section 5:
   `gh pr merge <n> --<method>`
 
-For the already-merged branches from step 4:
+For the already-merged branches from step 4, immediately before deleting each one run `git ls-remote --heads origin <branch>` again. If the SHA differs from the one shown in the plan, do not delete it: record the branch as "changed since the plan, kept" in the summary.
 
 ```bash
 git push origin --delete <branch>
@@ -139,6 +153,7 @@ If there was any error in step 7, do not switch branch: only run `git fetch --pr
 ```
 ✅ Merged: #12, #15
 🗑️  Deleted branches: feature/export, feature/login
+🛡️  Kept (commits after merge): <branches or none>
 ⏭️  Skipped: #14 (failing checks), #16 (conflicts)
 ⚠️  Errors: none
 📍 Current branch: master (up to date with origin)

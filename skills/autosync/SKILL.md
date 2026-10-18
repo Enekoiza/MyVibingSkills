@@ -147,8 +147,14 @@ If the push is rejected, STOP and report it. Never `--force` or
 ### 7. Open the PR
 
 ```bash
-gh pr create --base <base> --title "<title>" --body "<body>"
+gh pr create --base <base> --title '<title>' --body-file - <<'EOF'
+<body>
+EOF
 ```
+
+- The body goes through a quoted heredoc, so backticks and `$` are passed literally. Never put the body inside double quotes.
+- The title is single-quoted. Write any `'` in it as `'\''`.
+- The `EOF` terminator must not appear on a line of its own in the body.
 
 - Title: summarizes the whole batch of work, not a single commit.
 - Body: what was done and why, the list of included commits, and how to verify
