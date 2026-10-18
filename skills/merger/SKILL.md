@@ -65,8 +65,8 @@ gh pr list --state merged --base <main branch> --limit 100 --json number,headRef
 
 Group the merged PRs by `headRefName` (one branch can have several) and run this check per candidate branch. This also covers squash merges, which `git branch --merged` does not detect.
 
-- (a) Run `git ls-remote --heads origin <branch>`. If it returns nothing, the branch is already gone: skip it.
-- (b) Take the SHA it returns as the **current tip**.
+- (a) Run `git ls-remote origin refs/heads/<branch>`. If it returns nothing, the branch is already gone: skip it.
+- (b) Take the full 40-character SHA it returns as the **current tip**.
 - (c) The branch is deletable only if one of these holds:
   - the tip equals the `headRefOid` of any merged PR from that branch (this covers squash and rebase merges);
   - `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error.
@@ -118,7 +118,7 @@ gh pr view <n> --json mergeable,mergeStateStatus,headRefOid
 
 If it is no longer ready, or its `headRefOid` differs from the one recorded in step 3, skip it. Note it for the summary as 'not ready' or 'head changed since the plan — not merged'. Never merge a head the user did not see.
 
-**Lease delete.** Every remote delete in this step is `git push --force-with-lease=refs/heads/<branch>:<expected sha> origin --delete <branch>`. Never retry it and never add `--force`. If it exits non-zero for any reason (stale-info rejection, `remote ref does not exist`, or anything else), run `git ls-remote --heads origin <branch>` exactly once:
+**Lease delete.** Every remote delete in this step is `git push --force-with-lease=refs/heads/<branch>:<expected sha> origin --delete <branch>`. Never retry it and never add `--force`. If it exits non-zero for any reason (stale-info rejection, `remote ref does not exist`, or anything else), run `git ls-remote origin refs/heads/<branch>` exactly once:
 
 - returns nothing → record 'already gone' (skip);
 - returns a SHA different from `<expected sha>` → record it as kept, using the label given at the call site (skip);
@@ -128,7 +128,7 @@ In all of these cases the remote delete did not happen, so do not delete the loc
 
 - PR against the main branch and a deletable branch:
   - `gh pr merge <n> --<method> --match-head-commit <headRefOid>`.
-  - Then run `git ls-remote --heads origin <branch>`. If it returns nothing, the branch is already gone; skip the delete. If the SHA differs from `<headRefOid>`, do not delete it: record it as 'commits pushed after merge — kept' in the summary.
+  - Then run `git ls-remote origin refs/heads/<branch>`. If it returns nothing, the branch is already gone; skip the delete. If the SHA differs from `<headRefOid>`, do not delete it: record it as 'commits pushed after merge — kept' in the summary.
   - Only if it equals `<headRefOid>`, delete it as a **lease delete** with `<expected sha>` = `<headRefOid>`; kept label: 'commits pushed after merge — kept'.
   - Never pass `--delete-branch`: gh deletes the local branch with `git branch -D`.
   - Delete the local branch with `git branch -d <branch>` only if the remote delete happened; if it is the current branch, do it in step 8.5.
@@ -137,14 +137,14 @@ In all of these cases the remote delete did not happen, so do not delete the loc
 
 `<headRefOid>` is the value recorded in step 3. If `gh pr merge` exits non-zero, the PR was not merged: do not retry and do not delete its branch. Run `gh pr view <n> --json headRefOid` once: if the head differs from `<headRefOid>`, record it as skipped ('head changed since the plan — not merged'); otherwise record it as an error.
 
-For the already-merged branches from step 4, immediately before deleting each one run `git ls-remote --heads origin <branch>` again. If the SHA differs from the one shown in the plan, do not delete it: record the branch as "changed since the plan, kept" in the summary.
+For the already-merged branches from step 4, immediately before deleting each one run `git ls-remote origin refs/heads/<branch>` again. If it returns nothing, the branch is already gone: record 'already gone' and skip the delete. If the SHA differs from `<plan sha>`, do not delete it: record the branch as "changed since the plan, kept" in the summary.
 
 ```bash
 git push --force-with-lease=refs/heads/<branch>:<plan sha> origin --delete <branch>
-git branch -d <branch>      # only if the remote delete succeeded and it exists locally; use -d, never -D
+git branch -d <branch>      # only if the remote delete succeeded and it exists locally; if it is the current branch, do it in step 8.5; use -d, never -D
 ```
 
-This is a **lease delete** with `<expected sha>` = `<plan sha>`, the tip shown in the plan (step 4 (b)); kept label: 'changed since the plan, kept'. Skip the local delete unless the remote delete succeeded.
+This is a **lease delete** with `<expected sha>` = `<plan sha>`, the full 40-character current tip from step 4 (b) (the plan in section 6 shows it shortened for display only); kept label: 'changed since the plan, kept'. Skip the local delete unless the remote delete succeeded.
 
 If `git branch -d` fails because git does not recognise the branch as merged (typical after a squash), do not use `-D` automatically: leave the local branch and mention it in the summary.
 
@@ -168,6 +168,7 @@ If there was any error in step 7, do not switch branch: only run `git fetch --pr
 ✅ Merged: #12, #15
 🗑️  Deleted branches: feature/export, feature/login
 🛡️  Kept (commits after merge / changed since plan): <branches or none>
+ℹ️  Already gone / left locally (git branch -d refused): <branches or none>
 ⏭️  Skipped: #14 (failing checks), #16 (conflicts), #17 (head changed since plan)
 ⚠️  Errors: none
 📍 Current branch: master (up to date with origin)
