@@ -67,9 +67,9 @@ Group the merged PRs by `headRefName` (one branch can have several) and run this
 
 - (a) Run `git ls-remote origin refs/heads/<branch>`. Here and in step 7, "returns nothing" means it exited 0 with empty output: the branch is already gone, skip it. If `ls-remote` itself exits non-zero, that is an error, never 'already gone': in step 4, do not plan a delete for that branch and report it under errors; in step 7, record it as a step-7 error.
 - (b) Take the full 40-character SHA it returns as the **current tip**.
-- (c) The branch is deletable only if one of these holds:
-  - the tip equals the `headRefOid` of any merged PR from that branch (this covers squash and rebase merges);
-  - `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error. Any other exit code (e.g. 128 when the tip object is missing locally) is an error, never 'kept': do not plan a delete for that branch and report it under errors.
+- (c) The branch is deletable only if one of these holds, checked in this order:
+  - first, the tip equals the `headRefOid` of any merged PR from that branch (this covers squash and rebase merges); if so, the branch is deletable and `merge-base` is not run;
+  - only otherwise, `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error. Any other exit code (e.g. 128 when the tip object is missing locally) is an error, never 'kept': do not plan a delete for that branch and report it under errors.
 - (d) Otherwise, if neither condition holds and nothing in (a) or (c) was an error, classify the branch as **"has commits after merge — kept"**. Never delete it.
 
 As a supplement, `git branch -r --merged origin/<main branch>` lists the branches merged with a regular merge commit.
@@ -171,7 +171,7 @@ If step 8 did not switch branch for any reason (e.g. pending changes in 8.1, a f
 
 ```
 ✅ Merged: #12, #15
-🗑️  Deleted branches (remote; local too unless under Left locally): feature/export, feature/login
+🗑️  Deleted branches (remote; local too where it existed, unless listed under Left locally or Errors): feature/export, feature/login
 🛡️  Kept (commits after merge / changed since plan): <branches or none>
 ℹ️  Already gone (remote): <branches or none>
 💻 Left locally: <branch (-d refused) | branch (current branch, not switched) — or none>
