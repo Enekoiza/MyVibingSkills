@@ -180,4 +180,4 @@ If step 8 did not switch branch for any reason (e.g. pending changes in 8.1, a f
 📍 Current branch: master (up to date with origin)
 ```
 
-Tag each error with its step: step-4 errors do not block the switch in step 8, so they can appear next to a Current branch of master. Local copies of branches listed under Kept, Already gone or Errors are not touched; they are reported on those lines, not under Left locally.
+Tag each error with its step: step-4 errors do not block the switch in step 8, so they can appear next to a Current branch of master. Local copies of branches listed under Kept or Already gone are not touched. A local copy left behind by an error (step 4, a failed remote delete, or a `git branch -d` failure other than the unmerged refusal) is reported on the Errors line, not under Left locally.
