@@ -69,8 +69,8 @@ Group the merged PRs by `headRefName` (one branch can have several) and run this
 - (b) Take the full 40-character SHA it returns as the **current tip**.
 - (c) The branch is deletable only if one of these holds:
   - the tip equals the `headRefOid` of any merged PR from that branch (this covers squash and rebase merges);
-  - `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error.
-- (d) Otherwise, classify the branch as **"has commits after merge — kept"**. Never delete it.
+  - `git merge-base --is-ancestor <tip> origin/<main branch>` exits 0. Exit code 1 means "not an ancestor"; it is not an error. Any other exit code (e.g. 128 when the tip object is missing locally) is an error, never 'kept': do not plan a delete for that branch and report it under errors.
+- (d) Otherwise, if neither condition holds and nothing in (a) or (c) was an error, classify the branch as **"has commits after merge — kept"**. Never delete it.
 
 As a supplement, `git branch -r --merged origin/<main branch>` lists the branches merged with a regular merge commit.
 
@@ -163,19 +163,21 @@ If everything went well (no errors in step 7), leave the local repo on the main 
 4. `git fetch --prune origin`
 5. If in step 7 a local branch was not deleted only because it was the current branch, and its remote branch was deleted in step 7, delete it now with `git branch -d <branch>` (again, never `-D`). If the remote branch was kept or already gone, leave the local branch.
 
-If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review. Errors from step 4 (an `ls-remote` that exited non-zero, so no delete was planned) are listed in the section 9 Errors line but do not stop step 8 from switching branch.
+If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review. Errors from step 4 (an `ls-remote` that exited non-zero or a `merge-base --is-ancestor` exit other than 0 or 1, so no delete was planned) are listed in the section 9 Errors line but do not stop step 8 from switching branch.
 
-If step 8 did not switch branch (pending changes in 8.1, or errors in step 7), 8.5 does not run: a current branch whose remote was deleted stays locally; list it in the summary as left locally (current branch).
+If step 8 did not switch branch for any reason (e.g. pending changes in 8.1, a failed `git switch` in 8.2, or errors in step 7), 8.5 does not run: a current branch whose remote was deleted stays locally; list it in the summary as left locally (current branch).
 
 ## 9. Final summary
 
 ```
 ✅ Merged: #12, #15
-🗑️  Deleted branches: feature/export, feature/login
+🗑️  Deleted branches (remote; local too unless under Left locally): feature/export, feature/login
 🛡️  Kept (commits after merge / changed since plan): <branches or none>
 ℹ️  Already gone (remote): <branches or none>
 💻 Left locally: <branch (-d refused) | branch (current branch, not switched) — or none>
 ⏭️  Skipped: #14 (failing checks), #16 (conflicts), #17 (head changed since plan)
-⚠️  Errors: none
+⚠️  Errors: <branch or #n (step 4|7: what failed, e.g. feature/old (step 4: ls-remote exit 128, no delete planned))> — or none
 📍 Current branch: master (up to date with origin)
 ```
+
+Tag each error with its step: step-4 errors do not block the switch in step 8, so they can appear next to a Current branch of master. Local copies of branches listed under Kept, Already gone or Errors are not touched; they are reported on those lines, not under Left locally.
