@@ -101,12 +101,15 @@ Already-merged branches to delete (M):
 Kept — commits after merge (J):
   fix/paging  @d4e5f6a  (PR #7 merged @9f8e7d6; tip differs)
 
+Errors (E):
+  feature/old  ls-remote failed (exit 128) — no delete planned
+
 Skipped (K):
   #14  ❌ failing checks (build)
   #16  ⚠️ conflicts with master
 ```
 
-Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue without an explicit yes. If there is nothing to do, say so and finish.
+Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue without an explicit yes. If there is nothing to merge or delete, say so, list any step-4 errors (the Errors group above), and finish.
 
 ## 7. Execute
 
@@ -160,7 +163,7 @@ If everything went well (no errors in step 7), leave the local repo on the main 
 4. `git fetch --prune origin`
 5. If in step 7 a local branch was not deleted only because it was the current branch, and its remote branch was deleted in step 7, delete it now with `git branch -d <branch>` (again, never `-D`). If the remote branch was kept or already gone, leave the local branch.
 
-If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review.
+If there was any error in step 7, do not switch branch: only run `git fetch --prune origin` and leave the user where they were so they can review. Errors from step 4 (an `ls-remote` that exited non-zero, so no delete was planned) are listed in the section 9 Errors line but do not stop step 8 from switching branch.
 
 If step 8 did not switch branch (pending changes in 8.1, or errors in step 7), 8.5 does not run: a current branch whose remote was deleted stays locally; list it in the summary as left locally (current branch).
 
