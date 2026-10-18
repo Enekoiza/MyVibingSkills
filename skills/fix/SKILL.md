@@ -87,6 +87,16 @@ When it returns:
 - One commit per iteration, conventional format: `fix(<scope>): <what was fixed>`, imperative
   mood, en-GB. If the repo has its own commit convention or an issue key in the branch name,
   follow that instead.
+
+```bash
+git commit -F - <<'EOF'
+fix(<scope>): <what was fixed>
+EOF
+```
+
+- The message goes through a quoted heredoc, so backticks and `$` are passed literally. Never put
+  the message inside double quotes, and never use `git commit -m`.
+- The `EOF` terminator must not appear on a line of its own in the message.
 - `git push -u origin HEAD`. Never force-push. Never push to `main`, `master` or `develop`.
 
 ## Phase 5 — Pull request

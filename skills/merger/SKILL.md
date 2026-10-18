@@ -35,8 +35,10 @@ Merging and deleting branches are hard to undo, so this skill first analyses, th
 
 ```bash
 gh pr list --state open --limit 100 \
-  --json number,title,author,headRefName,baseRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,headRepositoryOwner,isCrossRepository,createdAt
+  --json number,title,author,headRefName,headRefOid,baseRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,headRepositoryOwner,isCrossRepository,createdAt
 ```
+
+Record each PR's `headRefOid`: it is the head SHA shown in the plan and the only commit that may be merged.
 
 Classify each PR:
 
@@ -90,8 +92,8 @@ Show a compact summary before doing anything:
 Repo: <owner>/<repo> · main branch: master · method: merge
 
 To be merged (N):
-  #12  Add export endpoint        feature/export        → master  (branch will be deleted)
-  #15  Fix pagination             fix/paging            → develop (branch is kept)
+  #12  Add export endpoint        feature/export @a1b2c3d → master  (branch will be deleted)
+  #15  Fix pagination             fix/paging @b2c3d4e     → develop (branch is kept)
 
 Already-merged branches to delete (M):
   feature/login  @a1b2c3d  (PR #9, merged on 2026-09-10)
@@ -111,17 +113,21 @@ Ask: "Shall I proceed with everything, exclude any, or cancel?". Do not continue
 Merge the PRs in creation order (oldest first). **Before each merge**, query its state again, because merging one PR can cause conflicts or leave the following ones `BEHIND`:
 
 ```bash
-gh pr view <n> --json mergeable,mergeStateStatus
+gh pr view <n> --json mergeable,mergeStateStatus,headRefOid
 ```
 
-If it is no longer ready, skip it and note it for the summary.
+If it is no longer ready, or its `headRefOid` differs from the one recorded in step 3, skip it. Note it for the summary as 'not ready' or 'head changed since the plan — not merged'. Never merge a head the user did not see.
 
 - PR against the main branch and a deletable branch:
-  `gh pr merge <n> --<method>`, then `git push origin --delete <branch>`.
-  Never pass `--delete-branch`: gh deletes the local branch with `git branch -D`.
-  Delete the local branch with `git branch -d <branch>`; if it is the current branch, do it in step 8.5.
+  - `gh pr merge <n> --<method> --match-head-commit <headRefOid>`.
+  - Then run `git ls-remote --heads origin <branch>`. If it returns nothing, the branch is already gone; skip the delete. If the SHA differs from `<headRefOid>`, do not delete it: record it as 'commits pushed after merge — kept' in the summary.
+  - Only if it equals `<headRefOid>`, run `git push origin --delete <branch>`.
+  - Never pass `--delete-branch`: gh deletes the local branch with `git branch -D`.
+  - Delete the local branch with `git branch -d <branch>` only if the remote delete happened; if it is the current branch, do it in step 8.5.
 - PR against another branch, or a branch protected by section 5:
-  `gh pr merge <n> --<method>`
+  `gh pr merge <n> --<method> --match-head-commit <headRefOid>`
+
+`<headRefOid>` is the value recorded in step 3. If `gh pr merge` exits non-zero (including a head-commit mismatch), the PR was not merged. Record it as skipped with the error, do not retry, and do not delete its branch.
 
 For the already-merged branches from step 4, immediately before deleting each one run `git ls-remote --heads origin <branch>` again. If the SHA differs from the one shown in the plan, do not delete it: record the branch as "changed since the plan, kept" in the summary.
 
@@ -152,7 +158,7 @@ If there was any error in step 7, do not switch branch: only run `git fetch --pr
 ✅ Merged: #12, #15
 🗑️  Deleted branches: feature/export, feature/login
 🛡️  Kept (commits after merge): <branches or none>
-⏭️  Skipped: #14 (failing checks), #16 (conflicts)
+⏭️  Skipped: #14 (failing checks), #16 (conflicts), #17 (head changed since plan)
 ⚠️  Errors: none
 📍 Current branch: master (up to date with origin)
 ```
