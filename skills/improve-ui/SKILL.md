@@ -151,7 +151,7 @@ Rules of thumb: fix the system before the instance (tokens > one-off values); pr
 **Validation timing**
 - Validate on blur, not per keystroke and not only on submit. After a field has errored, validate live so the error clears as soon as it is fixed.
 - Client validation for speed, server validation for trust; recompute prices/totals server-side; multi-row writes in one transaction.
-- CSS can drive it: `.field:has(:user-invalid)`, `form:has(:user-invalid) button { opacity: .4 }` — use `:user-invalid`, not `:invalid`.
+- CSS can drive it: `.field:has(:user-invalid) { border-color: var(--color-error) }` — use `:user-invalid`, not `:invalid`. Keep the submit button at full strength (see Submit buttons).
 
 **Submit buttons**
 - Don't disable submit with no explanation (drops out of tab order, tooltips can't fire, fails contrast). Keep it enabled, validate on click, highlight blocking fields, focus the first.

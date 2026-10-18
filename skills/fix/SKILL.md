@@ -2,7 +2,7 @@
 name: fix
 description: Plans a fix with Opus 5.5 (medium effort), implements it with Sonnet 5.5 (medium effort), pushes, opens a PR if there is none, then loops through pr-auditor until the audit reports no critical findings and no warnings.
 argument-hint: [what to fix — leave empty to use the previous message]
-allowed-tools: Read, Grep, Glob, Bash, Agent, TodoWrite
+allowed-tools: Read, Grep, Glob, Agent, TodoWrite, Bash(git status *), Bash(git diff *), Bash(git log *), Bash(git remote -v), Bash(git branch --show-current), Bash(git add *), Bash(git commit *), Bash(git push -u origin HEAD), Bash(gh auth status), Bash(gh pr view *), Bash(gh pr create *)
 model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
@@ -142,7 +142,7 @@ In English, briefly:
 - How many iterations it took and what each one resolved
 - Files touched and the PR link
 - Anything left open: suggestions not applied, dependency notes, findings that hit a loop guard
-- A reminder that the PR is still a draft
+- The PR state: a reminder that it is still a draft if this run created it; otherwise its current state from gh pr view
 
 ---
 

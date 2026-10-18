@@ -128,9 +128,20 @@ For each semantic group:
 Commit format:
 
 ```bash
-git commit -m "<type>(<scope>): <summary>"
-git commit -m "<issue-key>: <type>(<scope>): <summary>"
+git commit -F - <<'EOF'
+<type>(<scope>): <summary>
+EOF
 ```
+
+With an issue key:
+
+```bash
+git commit -F - <<'EOF'
+<issue-key>: <type>(<scope>): <summary>
+EOF
+```
+
+The message goes through a quoted heredoc, so backticks and `$` are passed literally. Never put the message inside double quotes.
 
 If a pre-commit hook fails, STOP, show the error, and ask how to proceed.
 Never use `--no-verify` on your own.

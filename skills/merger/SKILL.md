@@ -1,11 +1,11 @@
 ---
 name: merger
-description: Merges the open pull requests of the current repository that are ready (no conflicts, green checks, not draft) and deletes branches whose code is already merged into the main branch (master/main). Use when the user types /merger or asks to merge open PRs and clean up branches.
+description: Merges the open pull requests of the current repository that are ready (no conflicts, green checks, not draft) and deletes branches whose code is already merged into the main branch (master/main). Invoke manually with /merger.
 argument-hint: "[merge|squash|rebase]"
 model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
-allowed-tools: Bash(gh auth status:*), Bash(gh repo view:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh pr checks:*), Bash(git fetch:*), Bash(git branch -r *), Bash(git branch --show-current*), Bash(git branch -d *), Bash(git merge-base --is-ancestor *), Bash(git status:*), Bash(git rev-parse:*), Bash(git ls-remote:*), Bash(git switch:*), Bash(git pull --ff-only:*)
+allowed-tools: Bash(gh auth status:*), Bash(gh repo view:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh pr checks:*), Bash(git fetch:*), Bash(git branch -r *), Bash(git branch --show-current*), Bash(git merge-base --is-ancestor *), Bash(git status:*), Bash(git rev-parse:*), Bash(git ls-remote:*), Bash(git pull --ff-only:*)
 ---
 
 # Merger
@@ -116,12 +116,10 @@ gh pr view <n> --json mergeable,mergeStateStatus
 
 If it is no longer ready, skip it and note it for the summary.
 
-- PR against the main branch, deletable branch, and the PR head is NOT the current branch (`git branch --show-current`):
-  `gh pr merge <n> --<method> --delete-branch`
-- PR against the main branch, deletable branch, and the PR head IS the current branch:
-  run `gh pr merge <n> --<method>` without `--delete-branch`, then `git push origin --delete <branch>`.
-  `--delete-branch` would switch the working copy to the base branch and force-delete the local branch.
-  The local branch is handled later in step 8.5.
+- PR against the main branch and a deletable branch:
+  `gh pr merge <n> --<method>`, then `git push origin --delete <branch>`.
+  Never pass `--delete-branch`: gh deletes the local branch with `git branch -D`.
+  Delete the local branch with `git branch -d <branch>`; if it is the current branch, do it in step 8.5.
 - PR against another branch, or a branch protected by section 5:
   `gh pr merge <n> --<method>`
 
