@@ -5,7 +5,7 @@ argument-hint: "[merge|squash|rebase]"
 model: claude-sonnet-5-5
 effort: medium
 disable-model-invocation: true
-allowed-tools: Bash(gh auth status:*), Bash(gh repo view:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(gh pr checks:*), Bash(git fetch:*), Bash(git branch --show-current*), Bash(git merge-base --is-ancestor *), Bash(git status:*), Bash(git rev-parse:*), Bash(git ls-remote:*), Bash(git pull --ff-only:*)
+allowed-tools: Bash(gh auth status:*), Bash(gh repo view:*), Bash(gh pr list:*), Bash(gh pr view:*), Bash(git fetch:*), Bash(git branch --show-current*), Bash(git merge-base --is-ancestor *), Bash(git status:*), Bash(git rev-parse:*), Bash(git ls-remote:*), Bash(git pull --ff-only:*)
 ---
 
 # Merger
@@ -33,11 +33,12 @@ If any command in sections 1–5 exits non-zero and section 9 gives it no other 
 - If the user passed an argument (`$ARGUMENTS` = `merge`, `squash` or `rebase`), use that.
 - Otherwise, use the first one the repo allows in this order: `merge`, `squash`, `rebase`.
 - If the requested method is not allowed in the repo, say so and use an allowed one.
+- If $ARGUMENTS is not empty and is not exactly one of merge, squash or rebase (e.g. fast, squash please), say it is not a merge method and ask which one to use before continuing; nothing has been changed yet. If the user does not pick one, stop.
 
 ## 3. Analyse the open PRs
 
 ```bash
-gh pr list --state open --limit 100 \
+gh pr list --state open --limit 1000 \
   --json number,title,author,headRefName,headRefOid,baseRefName,isDraft,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup,headRepositoryOwner,isCrossRepository,createdAt
 ```
 
@@ -66,7 +67,7 @@ Never force a merge with `--admin` or by bypassing branch protections.
 Besides the open PRs, find remote branches whose code is already in the main branch but which still exist:
 
 ```bash
-gh pr list --state merged --base <main branch> --limit 100 --json number,headRefName,headRefOid,isCrossRepository,mergedAt
+gh pr list --state merged --base <main branch> --limit 1000 --json number,headRefName,headRefOid,isCrossRepository,mergedAt
 ```
 
 Group the merged PRs by `headRefName` (one branch can have several), ignoring PRs with `isCrossRepository = true` and branches protected by section 5, and run this check per candidate branch. This also covers squash merges, which `git branch --merged` does not detect.
