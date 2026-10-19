@@ -41,7 +41,7 @@ description: Cuándo y para qué usar esta skill
 | `/merger` | Mergea las PR listas y borra las ramas ya mergeadas | Sonnet 5.5 · medium |
 | `/audit` | Auditoría profunda de solo lectura: bugs, rendimiento, seguridad | Opus 5.5 · high |
 | `/improve-ui` | Revisa y mejora una UI con reglas UX concretas | Sonnet 5.5 · medium |
-| `/fix` | Bucle plan → implementación → PR → auditoría hasta dejarlo limpio | Sonnet 5.5 · medium |
+| `/fix` | Bucle plan → implementación → PR → auditoría hasta que no queden críticos ni avisos | Sonnet 5.5 · medium |
 
 ### Agentes
 
