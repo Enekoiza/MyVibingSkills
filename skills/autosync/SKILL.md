@@ -236,9 +236,11 @@ only reported, never fixed.
 6. **Commit and push**: stage explicitly (`git add <file>`) only the paths in the
    implementer's **Changes** list (which the scope check confirmed match the
    changes since the baseline), never a file you deliberately left
-   uncommitted. Verify the staged diff (`git diff --cached`) and run the safety
-   checks, exactly as in step 5. Commit using the commit format from step 5 (same
-   issue key and message rules), choosing the type from "Commit types" according
+   uncommitted. Verify the staged diff (`git diff --cached`) and apply the
+   "Safety rules" section, exactly as in top-level step 5 ("Create commits one
+   by one"); the scope check above does not replace this. Commit using the
+   commit format from top-level step 5 (same issue key and "Message rules"),
+   choosing the type from "Commit types" according
    to what the fix addresses (`fix` for bugs, `docs`, `style`, `refactor`,
    `test`, etc.); when one iteration mixes types, use the type of its most
    significant change. Then `git push`. Never force-push.
