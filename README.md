@@ -37,7 +37,7 @@ description: Cuándo y para qué usar esta skill
 | --- | --- | --- |
 | `/planning` | Planifica un cambio y espera confirmación antes de implementarlo | Opus 5.5 · medium |
 | `/brainstorming` | Discute y pule una idea contigo, sin implementar nada | Opus 5.5 · medium |
-| `/autosync` | Commits semánticos, push, PR y auditoría de una vez; para ante cualquier duda | Sonnet 5.5 · medium |
+| `/autosync` | Commits semánticos, push, PR, auditoría y corrección de hallazgos (máx. 3 rondas) de una vez; para ante cualquier duda | Sonnet 5.5 · medium |
 | `/merger` | Mergea las PR listas y borra las ramas ya mergeadas | Sonnet 5.5 · medium |
 | `/audit` | Auditoría profunda de solo lectura: bugs, rendimiento, seguridad | Opus 5.5 · high |
 | `/improve-ui` | Revisa y mejora una UI con reglas UX concretas | Sonnet 5.5 · medium |
@@ -47,8 +47,8 @@ description: Cuándo y para qué usar esta skill
 
 | Agente | Modelo | Lo usan |
 | --- | --- | --- |
-| `fix-planner` | Opus 5.5 · medium | `/fix` |
-| `fix-implementer` | Sonnet 5.5 · medium | `/fix` |
+| `fix-planner` | Opus 5.5 · medium | `/fix`, `/autosync` |
+| `fix-implementer` | Sonnet 5.5 · medium | `/fix`, `/autosync` |
 | `pr-auditor` | Opus 5.5 · medium | `/fix`, `/autosync` |
 | `test-runner` | Sonnet 5.5 · medium | `/planning` |
 

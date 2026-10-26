@@ -1,6 +1,6 @@
 ---
 name: autosync
-description: Groups pending changes into semantic commits and, if nothing is in doubt, pushes, opens a PR and runs the pr-auditor on it in one go. Stops and asks at any doubt.
+description: Groups pending changes into semantic commits and, if nothing is in doubt, pushes, opens a PR, runs the pr-auditor on it and fixes what it finds (up to 3 rounds) in one go. Stops and asks at any doubt.
 argument-hint: [optional context: ticket, goal]
 model: claude-sonnet-5-5
 effort: medium
@@ -9,9 +9,11 @@ disable-model-invocation: true
 
 # Autosync
 
-Create semantic commits from all available changes, then push, open a PR, and
-audit it — all in one run, without asking for confirmation, **unless** a doubt
-comes up (see "Doubt gate"). At any doubt, STOP and ask.
+Create semantic commits from all available changes, then push, open a PR,
+audit it, and fix whatever the audit reports (critical findings, warnings and
+suggestions, up to 3 rounds) — all in one run, without asking for
+confirmation, **unless** a doubt comes up (see "Doubt gate"). At any doubt,
+STOP and ask.
 
 Do not add any --trailer.
 
@@ -29,7 +31,7 @@ Talk to the user in English.
 ## Goal
 
 Turn the current working tree into clean, meaningful commits — then land them
-as an audited PR.
+as an audited PR with its audit findings fixed.
 
 No guessing. No mega commits. No vague messages. No mixing unrelated changes.
 
@@ -55,8 +57,17 @@ Always treat these as doubts:
 - The push is rejected.
 - The base branch for the PR is not obvious.
 - A PR already exists for this branch (ask whether to just push and re-audit).
+- The fix loop used its 3 iterations and the audit still reports critical
+  findings, warnings or suggestions.
+- The auditor raises a finding substantially the same as one from an earlier
+  iteration.
+- `fix-planner` returns **Blocked**, or `fix-implementer` reports that the plan
+  is wrong or that build or tests still fail.
+- A fix iteration touches files well outside the findings it addresses.
+- `fix-planner`, `fix-implementer` or `pr-auditor` is not available.
 
-If none of these apply, run the whole flow straight through to the audit.
+If none of these apply, run the whole flow straight through to the end of the
+fix loop.
 
 ## Steps
 
@@ -177,11 +188,46 @@ EOF
 
 - Run the `pr-auditor` subagent against the PR just created, passing its number.
 - Present the report it returns as-is.
-- Close with an explicit recommendation:
-  - If there are 🔴 critical findings: list what must be fixed before merging.
-  - If not: state the PR is ready to merge.
-- Do NOT merge the PR yourself, and do not fix audit findings in this same
-  flow — that's a separate decision and task.
+- If `Result:` is `CLEAN`, or only 📦 dependency notes remain: skip step 9 and
+  state the PR is ready to merge.
+- Otherwise (any 🔴, 🟡 or 🔵 finding): go to step 9.
+- Do NOT merge the PR yourself.
+
+### 9. Fix loop (maximum 3 iterations)
+
+Each iteration fixes the findings of the latest audit. 📦 Dependency notes are
+only reported, never fixed.
+
+1. **Dossier**: collect the findings of the latest audit verbatim (🔴, 🟡, 🔵),
+   with file and line. From iteration 2 on, include only the new findings plus a
+   short summary of what earlier iterations changed and why.
+2. **Plan**: dispatch the `fix-planner` subagent with the dossier. Subagents
+   start with no context, so paste everything it needs. Print the plan. If it
+   returns **Blocked**, stop and ask.
+3. **Implement**: dispatch the `fix-implementer` subagent with the plan
+   verbatim and the dossier, and tell it to implement the plan and nothing
+   else. If it reports unresolved build or test failures, or that the plan is
+   wrong, stop and ask.
+4. **Commit and push**: stage only the files the implementer touched, commit as
+   `fix(<scope>): <what was fixed>` using the commit format from step 5 (same
+   issue key and message rules), then `git push`. Never force-push.
+5. **Re-audit**: run `pr-auditor` on the PR again and present the report.
+
+After the re-audit:
+
+- `CLEAN`, or only 📦 notes remain: the loop ends, the PR is ready to merge.
+- Findings remain and fewer than 3 iterations ran: start the next iteration.
+- Findings remain after the 3rd iteration: STOP. Keep the branch and PR as they
+  are, list what is still open, and ask the user how to proceed.
+
+Guards (each one is a STOP-and-ask):
+
+- A finding is substantially the same as one from an earlier iteration. Likely a
+  false positive or a disagreement; describe both sides.
+- An iteration touches files well outside the findings it addresses.
+
+Never weaken, skip or delete a test to make the suite green. Do not expand a fix
+beyond its finding.
 
 ## Commit types
 
@@ -248,12 +294,13 @@ Run `git status --short`, then report in as few words as possible:
 
 - commits created
 - push and PR status (URL)
-- audit result (critical findings or ready to merge)
+- audit result: fix iterations run and what each fixed, then ready to merge or
+  the findings still open
 - files intentionally left uncommitted
 - anything skipped for safety
 
 If the run stopped at a doubt, report what was already done (commits created,
 pushed or not) and what is pending the user's answer.
 
-Done means clean semantic history landed as an audited PR, not just zero
-pending files.
+Done means clean semantic history landed as an audited PR with a clean audit
+(or the open findings handed to the user), not just zero pending files.
