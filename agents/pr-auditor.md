@@ -90,7 +90,7 @@ Result: <CLEAN | FINDINGS: N critical, N warnings, N suggestions>
 ```
 
 Rules for the report:
-- Always include the `Result:` line. Use `CLEAN` only when there are no critical findings, no warnings and no suggestions. Callers decide from the severity counts: `/fix` loops on critical findings and warnings, `/autosync` blocks the merge on critical ones, so keep the counts exact.
+- Always include the `Result:` line. Use `CLEAN` only when there are no critical findings, no warnings and no suggestions. Callers decide from the severity counts: `/fix` loops on critical findings and warnings, `/autosync` loops on critical findings, warnings and suggestions until `CLEAN` (max. 3 rounds), so keep the counts exact.
 - Omit any section that has no entries instead of writing "none". Omit 📦 Dependencies entirely when the diff touches no package.
 - Never invent a line number or a finding you didn't verify by reading the actual diff.
 - If you're not sure something is a bug, phrase it as a question, not an accusation ("does X handle the case where Y is null?" rather than "X is broken").

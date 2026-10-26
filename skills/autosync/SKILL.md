@@ -1,6 +1,6 @@
 ---
 name: autosync
-description: Groups pending changes into semantic commits and, if nothing is in doubt, pushes, opens a PR and runs the pr-auditor on it in one go. Stops and asks at any doubt.
+description: Groups pending changes into semantic commits and, if nothing is in doubt, pushes, opens a PR, runs the pr-auditor on it and fixes what it finds (up to 3 rounds) in one go. Stops and asks at any doubt.
 argument-hint: [optional context: ticket, goal]
 model: claude-sonnet-5-5
 effort: medium
@@ -9,9 +9,11 @@ disable-model-invocation: true
 
 # Autosync
 
-Create semantic commits from all available changes, then push, open a PR, and
-audit it — all in one run, without asking for confirmation, **unless** a doubt
-comes up (see "Doubt gate"). At any doubt, STOP and ask.
+Create semantic commits from all available changes, then push, open a PR,
+audit it, and fix whatever the audit reports (critical findings, warnings and
+suggestions, up to 3 rounds) — all in one run, without asking for
+confirmation, **unless** a doubt comes up (see "Doubt gate"). At any doubt,
+STOP and ask.
 
 Do not add any --trailer.
 
@@ -29,7 +31,7 @@ Talk to the user in English.
 ## Goal
 
 Turn the current working tree into clean, meaningful commits — then land them
-as an audited PR.
+as an audited PR with its audit findings fixed.
 
 No guessing. No mega commits. No vague messages. No mixing unrelated changes.
 
@@ -54,9 +56,24 @@ Always treat these as doubts:
 - A pre-commit hook fails.
 - The push is rejected.
 - The base branch for the PR is not obvious.
-- A PR already exists for this branch (ask whether to just push and re-audit).
+- A PR already exists for this branch (ask whether to just push and re-audit; if
+  the user agrees, skip step 7 and continue from step 8 on that PR, fix loop
+  included).
+- The fix loop used its 3 iterations and the audit still reports critical
+  findings, warnings or suggestions.
+- The auditor raises a finding substantially the same as one from an earlier
+  iteration.
+- An audit finding is phrased as a question (e.g. "does X handle Y?") or it is
+  unclear how to fix it.
+- `fix-planner` returns **Blocked**, or `fix-implementer` returns
+  `Status: FAILED` or `Status: PLAN_WRONG`.
+- A fix iteration touches files well outside the findings it addresses, changes
+  one of the files you deliberately left uncommitted, or its changes since the
+  baseline don't match the implementer's **Changes** list.
+- `fix-planner`, `fix-implementer` or `pr-auditor` is not available.
 
-If none of these apply, run the whole flow straight through to the audit.
+If none of these apply, run the whole flow straight through to the end of the
+fix loop.
 
 ## Steps
 
@@ -157,6 +174,9 @@ If the push is rejected, STOP and report it. Never `--force` or
 
 ### 7. Open the PR
 
+If a PR already exists for this branch and the user chose "just push and
+re-audit", skip this step: keep that PR's number and URL and go to step 8.
+
 ```bash
 gh pr create --base <base> --title '<title>' --body-file - <<'EOF'
 <body>
@@ -175,13 +195,77 @@ EOF
 
 ### 8. Audit
 
-- Run the `pr-auditor` subagent against the PR just created, passing its number.
+- Run the `pr-auditor` subagent against the PR (the one just created, or the existing one from step 7),
+  passing its number.
 - Present the report it returns as-is.
-- Close with an explicit recommendation:
-  - If there are 🔴 critical findings: list what must be fixed before merging.
-  - If not: state the PR is ready to merge.
-- Do NOT merge the PR yourself, and do not fix audit findings in this same
-  flow — that's a separate decision and task.
+- If `Result:` is `CLEAN`, or only 📦 dependency notes remain: skip step 9 and
+  state the PR is ready to merge.
+- Otherwise (any 🔴, 🟡 or 🔵 finding): go to step 9.
+- Do NOT merge the PR yourself.
+
+### 9. Fix loop (maximum 3 iterations)
+
+Each iteration fixes the findings of the latest audit. 📦 Dependency notes are
+only reported, never fixed.
+
+1. **Dossier**: collect the findings of the latest audit verbatim (🔴, 🟡, 🔵),
+   with file and line. From iteration 2 on, include only the new findings plus a
+   short summary of what earlier iterations changed and why. If any finding is phrased as a
+   question or it is unclear how to fix it, stop and ask before planning; do not
+   send it to the planner as a fix.
+2. **Plan**: dispatch the `fix-planner` subagent with the dossier. Subagents
+   start with no context, so paste everything it needs. Print the plan. If it
+   returns **Blocked**, stop and ask.
+3. **Baseline**: right before dispatching the implementer, record the working
+   tree state: save the output of `git status --porcelain -z --untracked-files=all | tr '\0' '\n'`
+   (unquoted paths; a rename or copy shows as its target path followed by its
+   source path on the next line, and both count as paths), and run
+   `git hash-object -- "<path>"` on every path it lists (note "absent" for
+   deleted paths). This covers the files you deliberately left uncommitted.
+   Take a fresh baseline every iteration, after the previous iteration's commit.
+4. **Implement**: dispatch the `fix-implementer` subagent with the plan
+   verbatim and the dossier, and tell it to implement the plan and nothing
+   else. Read its status line: on `Status: FAILED` or `Status: PLAN_WRONG`, stop
+   and ask. On `Status: DONE`, continue even if it lists pre-existing failures
+   under **Noticed but not touched**; mention them in the final report.
+5. **Scope check**: run the same `git status` command again
+   and work out which paths changed since the baseline: paths that are new in
+   the list, paths that left it, and baseline paths whose `git hash-object`
+   differs. Ignore only untracked files that are clearly build or test
+   output (such as `bin/`, `obj/`, coverage files); any tracked file that
+   changed counts. Stop and ask before committing if:
+   - that set differs from the implementer's **Changes** list in either
+     direction (a changed file it did not list, or a listed file that did not
+     change);
+   - any file you deliberately left uncommitted changed against its baseline;
+   - any changed file is well outside the files named in the dossier and plan.
+6. **Commit and push**: stage explicitly (`git add <file>`) only the paths in the
+   implementer's **Changes** list (which the scope check confirmed match the
+   changes since the baseline), never a file you deliberately left
+   uncommitted. Verify the staged diff (`git diff --cached`) and apply the
+   "Safety rules" section, exactly as in top-level step 5 ("Create commits one
+   by one"); the scope check above does not replace this. Commit using the
+   commit format from top-level step 5 (same issue key and "Message rules"),
+   choosing the type from "Commit types" according
+   to what the fix addresses (`fix` for bugs, `docs`, `style`, `refactor`,
+   `test`, etc.); when one iteration mixes types, use the type of its most
+   significant change. If a pre-commit hook fails, STOP as in top-level step 5 and
+   never use `--no-verify` on your own. Then `git push`; if it is rejected, STOP
+   and report it as in top-level step 6. Never force-push.
+7. **Re-audit**: run `pr-auditor` on the PR again and present the report.
+
+After the re-audit:
+
+- `CLEAN`, or only 📦 notes remain: the loop ends, the PR is ready to merge.
+- A finding is substantially the same as one from an earlier iteration: STOP and
+  ask, whatever the iteration count. Likely a false positive or a disagreement;
+  describe both sides.
+- Findings remain and fewer than 3 iterations ran: start the next iteration.
+- Findings remain after the 3rd iteration: STOP. Keep the branch and PR as they
+  are, list what is still open, and ask the user how to proceed.
+
+Never weaken, skip or delete a test to make the suite green. Do not expand a fix
+beyond its finding.
 
 ## Commit types
 
@@ -248,12 +332,13 @@ Run `git status --short`, then report in as few words as possible:
 
 - commits created
 - push and PR status (URL)
-- audit result (critical findings or ready to merge)
+- audit result: fix iterations run and what each fixed, then ready to merge or
+  the findings still open
 - files intentionally left uncommitted
 - anything skipped for safety
 
 If the run stopped at a doubt, report what was already done (commits created,
 pushed or not) and what is pending the user's answer.
 
-Done means clean semantic history landed as an audited PR, not just zero
-pending files.
+Done means clean semantic history landed as an audited PR with a clean audit
+(or the open findings handed to the user), not just zero pending files.

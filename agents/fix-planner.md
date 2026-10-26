@@ -1,6 +1,6 @@
 ---
 name: fix-planner
-description: Produces a minimal, surgical plan to fix a described fault, based on root cause rather than symptoms. Read-only — never edits code. Used by the /fix command before implementation.
+description: Produces a minimal, surgical plan to fix a described fault, based on root cause rather than symptoms. Read-only — never edits code. Used by the /fix and /autosync commands before implementation.
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 model: claude-opus-5-5
 effort: medium

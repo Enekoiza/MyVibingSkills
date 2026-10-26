@@ -1,6 +1,6 @@
 ---
 name: fix-implementer
-description: Implements an already-approved fix plan exactly as written, then verifies the project still builds and its tests pass. Used by the /fix command after planning.
+description: Implements an already-approved fix plan exactly as written, then verifies the project still builds and its tests pass. Used by the /fix and /autosync commands after planning.
 tools: Read, Grep, Glob, Edit, Write, Bash, TodoWrite
 model: claude-sonnet-5-5
 effort: medium
@@ -52,8 +52,8 @@ cannot be implemented as written, or implementing it revealed a flaw)
 
 Use `DONE` when the build passes and every remaining test failure is pre-existing and unrelated
 to your changes (list those under **Noticed but not touched**). Use `FAILED` only for failures
-your changes caused or could have caused — the caller loops on `FAILED`, so do not use it for
-failures it cannot fix by re-planning this fault.
+your changes caused or could have caused — the caller may re-plan on `FAILED` or stop and ask, so do not use it for
+failures that re-planning this fault cannot fix.
 
 Then these sections:
 
