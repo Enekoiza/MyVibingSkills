@@ -56,14 +56,17 @@ Always treat these as doubts:
 - A pre-commit hook fails.
 - The push is rejected.
 - The base branch for the PR is not obvious.
-- A PR already exists for this branch (ask whether to just push and re-audit).
+- A PR already exists for this branch (ask whether to just push and re-audit; if
+  the user agrees, skip step 7 and continue from step 8 on that PR, fix loop
+  included).
 - The fix loop used its 3 iterations and the audit still reports critical
   findings, warnings or suggestions.
 - The auditor raises a finding substantially the same as one from an earlier
   iteration.
-- `fix-planner` returns **Blocked**, or `fix-implementer` reports that the plan
-  is wrong or that build or tests still fail.
-- A fix iteration touches files well outside the findings it addresses.
+- `fix-planner` returns **Blocked**, or `fix-implementer` returns
+  `Status: FAILED` or `Status: PLAN_WRONG`.
+- A fix iteration touches files well outside the findings it addresses, or one of
+  the files you deliberately left uncommitted.
 - `fix-planner`, `fix-implementer` or `pr-auditor` is not available.
 
 If none of these apply, run the whole flow straight through to the end of the
@@ -168,6 +171,9 @@ If the push is rejected, STOP and report it. Never `--force` or
 
 ### 7. Open the PR
 
+If a PR already exists for this branch and the user chose "just push and
+re-audit", skip this step: keep that PR's number and URL and go to step 8.
+
 ```bash
 gh pr create --base <base> --title '<title>' --body-file - <<'EOF'
 <body>
@@ -186,7 +192,8 @@ EOF
 
 ### 8. Audit
 
-- Run the `pr-auditor` subagent against the PR just created, passing its number.
+- Run the `pr-auditor` subagent against the PR (the one just created, or the existing one from step 7),
+  passing its number.
 - Present the report it returns as-is.
 - If `Result:` is `CLEAN`, or only 📦 dependency notes remain: skip step 9 and
   state the PR is ready to merge.
@@ -206,12 +213,22 @@ only reported, never fixed.
    returns **Blocked**, stop and ask.
 3. **Implement**: dispatch the `fix-implementer` subagent with the plan
    verbatim and the dossier, and tell it to implement the plan and nothing
-   else. If it reports unresolved build or test failures, or that the plan is
-   wrong, stop and ask.
-4. **Commit and push**: stage only the files the implementer touched, commit as
-   `fix(<scope>): <what was fixed>` using the commit format from step 5 (same
-   issue key and message rules), then `git push`. Never force-push.
-5. **Re-audit**: run `pr-auditor` on the PR again and present the report.
+   else. Read its status line: on `Status: FAILED` or `Status: PLAN_WRONG`, stop
+   and ask. On `Status: DONE`, continue even if it lists pre-existing failures
+   under **Noticed but not touched**; mention them in the final report.
+4. **Scope check**: compare the implementer's **Changes** list (and
+   `git status --short`) with the files named in the dossier and plan. If it
+   touches files well outside the findings, or any file you deliberately left
+   uncommitted earlier in this run, stop and ask before committing.
+5. **Commit and push**: stage explicitly (`git add <file>`) only the paths in the
+   implementer's **Changes** list, never a file you deliberately left
+   uncommitted. Verify the staged diff (`git diff --cached`) and run the safety
+   checks, exactly as in step 5. Commit using the commit format from step 5 (same
+   issue key and message rules), choosing the type from "Commit types" according
+   to what the fix addresses (`fix` for bugs, `docs`, `style`, `refactor`,
+   `test`, etc.); when one iteration mixes types, use the type of its most
+   significant change. Then `git push`. Never force-push.
+6. **Re-audit**: run `pr-auditor` on the PR again and present the report.
 
 After the re-audit:
 
@@ -224,7 +241,6 @@ Guards (each one is a STOP-and-ask):
 
 - A finding is substantially the same as one from an earlier iteration. Likely a
   false positive or a disagreement; describe both sides.
-- An iteration touches files well outside the findings it addresses.
 
 Never weaken, skip or delete a test to make the suite green. Do not expand a fix
 beyond its finding.
