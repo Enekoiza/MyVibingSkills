@@ -44,9 +44,13 @@ Ask when any of these holds after your research:
 How to ask:
 - Ask only what the code and repo could not answer and what would change the
   plan. Decide everything else with sensible defaults.
-- Send one numbered batch of questions. For each, offer the options and mark
-  a recommended one.
-- End the turn with the questions only — no plan and no confirmation request.
+- Use the `AskUserQuestion` tool, with up to 4 questions per call. For each
+  question, offer 2-4 options, put the recommended one first and append
+  "(Recommended)" to its label. Put the key trade-off in each option's
+  `description`.
+- If `AskUserQuestion` is unavailable (for example, in a subagent), fall back
+  to one numbered batch of questions in plain text, with the same options.
+- End the turn after asking — no plan and no confirmation request.
 
 After the user answers, run this gate again. If new ambiguities appeared, ask
 again; otherwise continue to Phase 2.
