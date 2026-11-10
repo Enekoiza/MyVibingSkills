@@ -85,7 +85,7 @@ Besides the remote branches, look at the local copies, including branches that w
 
 1. `git for-each-ref refs/heads --format='%(refname:short)%09%(objectname)%09%(upstream:short)%09%(upstream:track)'` — the second column is the full 40-character SHA, called the **local tip**. An empty third column means the branch has no upstream (it may never have been pushed, or was pushed without `-u`); `[gone]` in the fourth column means the upstream no longer exists.
 2. `git worktree list --porcelain` — every branch checked out in a worktree other than the current one is excluded and reported under Skipped as `<branch> (checked out in another worktree)`.
-3. Exclude the branches protected by section 5 (the main branch, long-lived names, and heads and bases of open PRs from step 3 **other than the PRs the plan merges**: the head of a PR being merged stays a candidate for `after PR #n merges`). The starting branch is classified normally; it is only skipped at step 8.5 if it is still checked out.
+3. Exclude the branches protected by section 5 (the main branch, long-lived names, and heads and bases of open PRs from step 3, except the heads of the PRs the plan merges into the main branch: those stay candidates for `after PR #n merges`; a base keeps its protection). The starting branch is classified normally; it is only skipped at step 8.5 if it is still checked out.
 4. Classify each remaining branch:
    - **Merged**, if one of these holds, checked in this order:
      - the local tip equals the `headRefOid` of any merged PR into the main branch with `isCrossRepository = false` (from the step-4 query; this covers squash and rebase merges);
@@ -143,7 +143,7 @@ Skipped (K):
   #16  ⚠️ conflicts with master
 ```
 
-Ask: "Shall I proceed with everything, exclude any, force-delete any of the unmerged local branches (name them), or cancel?". Do not continue without an explicit yes to the plan exactly as last shown; a reply that excludes items or names unmerged branches is never that yes. Excluded items are not touched; the user may exclude a PR (no merge, branch kept), only the branch delete of a PR to be merged, an already-merged branch, or a local branch to delete. Unmerged local branches are kept unless the user names them; a named one moves into the Local branches to delete list marked `(unmerged, force-delete)`, and its commits are lost except through the reflog. Never include an unmerged branch on your own initiative. If there is nothing to merge or delete (no PR, no remote branch, no local branch to delete), show the plan without the question and finish; unmerged local branches alone do not count as something to delete. If the user cancels or excludes every merge and delete, stop: no step 7, step 8 or summary. After any other exclusion or naming, show the adjusted plan (excluded items under Skipped as `<#n or branch> (excluded)`; a PR whose branch delete is excluded stays under To be merged with `(branch is kept)`) and ask the same question again.
+Ask: "Shall I proceed with everything, exclude any, force-delete any of the unmerged local branches (name them), or cancel?". Do not continue without an explicit yes to the plan exactly as last shown; a reply that excludes items or names unmerged branches is never that yes. Excluded items are not touched; the user may exclude a PR (no merge, branch kept), only the branch delete of a PR to be merged, an already-merged branch, or a local branch to delete. Unmerged local branches are kept unless the user names them; a named one moves into the Local branches to delete list marked `(unmerged, force-delete)`, and its commits are lost except through the reflog. Never include an unmerged branch on your own initiative. If there is nothing to merge or delete (no PR, no remote branch, no local branch to delete), show the plan without the question and finish; unmerged local branches alone do not count as something to delete. If the user cancels or excludes every merge and delete, stop: no step 7, step 8 or summary. After any other exclusion or naming, show the adjusted plan (excluded items under Skipped as `<#n>`, `<branch> (remote, excluded)` or `<branch> (local, excluded)`; a PR whose branch delete is excluded stays under To be merged with `(branch is kept)`) and ask the same question again.
 
 ## 7. Execute
 
@@ -171,7 +171,7 @@ If there was any error in step 7, do not switch branch: run `git fetch --prune o
 4. `git fetch --prune origin` — if it fails, continue with 8.5.
 5. **Local cleanup.** Run it whether or not the branch switch happened. For each branch in the plan's Local branches to delete list (merged ones, plus unmerged ones the user named), except those the user excluded:
    1. `git branch --show-current` — if it is this branch, skip it (Left locally: checked out). If the command fails, do not delete any local branch: report it once under Errors (`step 8.5`) and end the local cleanup.
-   2. For `after PR #n merges` branches, skip it unless 7.2 merged that PR (Left locally: PR not merged).
+   2. If the branch is the head of a PR the plan merges (an `after PR #n merges` branch, or one the user named whose tip differs from that PR's head), skip it unless 7.2 merged that PR (Left locally: PR not merged).
    3. `git rev-parse --verify --quiet refs/heads/<branch>` — it must print `<local tip>`, the full SHA recorded in step 4b. No output (exit 1) means the branch is already gone (Already gone); a different SHA means it changed since the plan: keep it (Kept: changed since plan). Any other exit code is an error: do not delete.
    4. `git branch -D <branch>`. `-D` is intended here because squash and rebase merges are never ancestors of the main branch; the confirmed plan and the SHA check in 8.5.3 are the safety guard. Never retry a failure.
 
@@ -181,7 +181,7 @@ If there was any error in step 7, do not switch branch: run `git fetch --prune o
 ✅ Merged: #12, #15
 🗑️  Deleted branches (remote): feature/export, feature/login
 💻 Deleted locally: feature/export, feature/login, docs/old, wip/search (force-deleted)
-🛡️  Kept (commits after merge / changed since plan): fix/old-paging
+🛡️  Kept (commits after merge / changed since plan): fix/old-paging (remote, commits after merge)
 ℹ️  Already gone: <branch (remote) | branch (local) — or none>
 📌 Left locally: <branch (checked out | PR not merged) | unmerged: wip/other — or none>
 ⏭️  Skipped: #14 (failing checks), #16 (conflicts), #17 (head changed since plan)
@@ -189,39 +189,40 @@ If there was any error in step 7, do not switch branch: run `git fetch --prune o
 📍 Current branch: master (up to date with origin)
 ```
 
-Every outcome goes on exactly one line, except rows marked `+`: a PR whose branch delete was excluded also has `<branch> (excluded)` under Skipped, but only if the PR itself is under Merged — otherwise only the PR's own line appears. Remote and local copies of the same branch are separate outcomes, each reported on its own line: the remote one under Deleted branches, Kept, Already gone (`<branch> (remote)`) or Errors; the local one under Deleted locally, Left locally, Kept, Already gone (`<branch> (local)`) or Errors. Local copies are deleted only in step 8.5. Unmerged local branches the user did not name are listed under Left locally as `unmerged: <branch>`.
+Every outcome goes on exactly one line, except rows marked `+`: a PR whose branch delete was excluded also has `<branch> (remote, excluded)` under Skipped, but only if the PR itself is under Merged — otherwise only the PR's own line appears. Remote and local copies of the same branch are separate outcomes, each reported on its own line: the remote one under Deleted branches, Kept, Already gone (`<branch> (remote)`) or Errors; the local one under Deleted locally, Left locally, Kept, Already gone (`<branch> (local)`) or Errors. Local copies are deleted only in step 8.5. Unmerged local branches the user did not name are listed under Left locally as `unmerged: <branch>`.
 
 | Outcome | Class | Summary line |
 |---|---|---|
 | Non-zero exit in sections 1–5 with no other row (e.g. `gh pr list`, the step-3 Unknown re-query, `git branch --show-current`) | stop | no summary: say what failed; nothing was changed |
 | User cancels, or excludes every merge and delete | stop | no summary: say nothing was changed |
-| PR not Ready in step 3, or excluded by the user | skip | Skipped: `#n (<state>)` (the step-3 row name, e.g. `failing checks (build)`, `not ready (UNSTABLE)`) / `<#n or branch> (excluded)` (`+` when only a PR's branch delete is excluded; see above) |
+| PR not Ready in step 3, or excluded by the user | skip | Skipped: `#n (<state>)` (the step-3 row name, e.g. `failing checks (build)`, `not ready (UNSTABLE)`) / `<#n>` or `<branch> (remote, excluded)` (`+` when only a PR's branch delete is excluded; see above) |
 | Step 4: `ls-remote` returns nothing | — | not reported |
-| Step 4: has commits after merge (`merge-base` exit 1) | kept | Kept |
+| Step 4: has commits after merge (`merge-base` exit 1) | kept | Kept: `<branch> (remote, commits after merge)` |
 | Step 4: `ls-remote` non-zero, or `merge-base` exit other than 0/1 | error (does not block step 8) | Errors (`step 4`) |
 | 7.1: head differs, else base differs, else not ready (first that applies) | skip | Skipped: `#n (head changed since plan)` / `#n (base changed since plan)` / `#n (not ready: <state>)` |
 | 7.2: `state = MERGED`, `gh pr merge` exited non-zero | error | Errors: `#n (step 7: gh exited <N> but PR is merged into <base>; branch kept)` |
 | 7.2: `state = MERGED`, exit 0, `baseRefName` differs from the plan | done | Merged: `#n (into <base>, base changed since plan; branch kept)` |
-| 7.2: `state = MERGED`, exit 0, `baseRefName` as in the plan | done | Merged: `#n` (its branch appears only through the 7.3 rows if 7.3 ran, or as `+` `<branch> (excluded)`) |
+| 7.2: `state = MERGED`, exit 0, `baseRefName` as in the plan | done | Merged: `#n` (its branch appears only through the 7.3 rows if 7.3 ran, or as `+` `<branch> (remote, excluded)`) |
 | 7.2: `state = CLOSED` | skip | Skipped: `#n (closed without merge, branch kept)` |
 | 7.2: `state = OPEN`, exit 0 (queued or auto-merge enabled) | skip | Skipped: `#n (queued / auto-merge enabled, branch kept)` |
 | 7.2: `state = OPEN`, non-zero, head now differs from `<headRefOid>` | skip | Skipped: `#n (head changed since plan)` |
 | 7.2: `state = OPEN`, non-zero, head unchanged | error | Errors (`step 7`) |
 | Pre-delete `ls-remote` or lease-delete re-check: returns nothing | skip | Already gone (`<branch> (remote)`) |
-| … returns a different SHA | kept | Kept |
+| … returns a different SHA | kept | Kept: `<branch> (remote, changed since plan)` |
 | … exits non-zero, or the re-check still returns `<expected sha>` | error | Errors (`step 7`) |
 | Lease delete succeeds | done | Deleted branches |
 | Step 4b: `merge-base` exit other than 0/1 | error (does not block step 8) | Errors (`step 4b`) |
+| Step 4b: `git rev-list --count` fails | — | not reported; the plan shows `unknown number of commits` |
 | Step 4b: `git for-each-ref` or `git worktree list` fails | error (no local cleanup; does not block step 8) | Errors (`step 4b`) |
 | Step 4b: checked out in another worktree | skip | Skipped: `<branch> (checked out in another worktree)` |
 | Step 4b: unmerged and not named by the user | skip | Left locally: `unmerged: <branch>` |
-| Step 4b: excluded by the user | skip | Skipped: `<branch> (excluded)` |
+| Step 6: local delete excluded by the user | skip | Skipped: `<branch> (local, excluded)` |
 | 8.5: `git branch -D` succeeds (merged, or unmerged and named) | done | Deleted locally (`(force-deleted)` if it was unmerged) |
 | 8.5.1: branch is checked out | skip | Left locally: `<branch> (checked out)` |
 | 8.5.2: its PR was not merged in 7.2 | skip | Left locally: `<branch> (PR not merged)` |
 | 8.5.1: `git branch --show-current` fails | error (ends local cleanup) | Errors (`step 8.5`) |
-| 8.5.3: `rev-parse` prints nothing (exit 1) | — | Already gone (`<branch> (local)`) |
-| 8.5.3: `rev-parse` prints a different SHA | kept | Kept: `<branch> (changed since plan)` |
+| 8.5.3: `rev-parse` prints nothing (exit 1) | skip | Already gone (`<branch> (local)`) |
+| 8.5.3: `rev-parse` prints a different SHA | kept | Kept: `<branch> (local, changed since plan)` |
 | 8.5.3: `rev-parse` exits other than 0/1, or 8.5.4 `git branch -D` fails | error | Errors (`step 8.5`) |
 | Any other non-zero exit in step 7 not covered above (e.g. a `gh pr view`) | error | Errors (`step 7`) |
 | Step 8 (branch switch) | — | Current branch: `<main> (up to date with origin)`, `<main> (not fast-forwarded: <reason>)`, or `<starting branch, or detached HEAD> (not switched: uncommitted changes / git status failed / git switch failed / errors in step 7)`; append `; fetch --prune failed` if the step-8 fetch failed |
