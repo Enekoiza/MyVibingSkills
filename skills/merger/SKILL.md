@@ -144,7 +144,7 @@ Local branches to delete (L):
   feature/export  @a1b2c3d  (after PR #12 merges)
   docs/old        @0a1b2c3  (merged: ancestor of master)
 
-Local — unmerged changes, kept unless you name them (U):
+Local — unmerged changes, kept unless named as <branch> (force-delete) (U):
   wip/search      @7c8d9e0  (3 commits not in master, no upstream)
   fix/typo        @1d2e3f4  (1 commit not in master, upstream gone)
 
@@ -158,7 +158,7 @@ Skipped (K):
 
 In To be merged, show `(branch will be deleted)` only when 7.3 would delete the branch as planned: the PR's base is the main branch, it is not a fork PR, its branch is not protected by section 5 (e.g. it is also the head or base of another open PR) and the user has not excluded its branch delete. Otherwise show `(branch is kept)`.
 
-Then ask: "Shall I proceed with everything, exclude any, force-delete any of the unmerged local branches (name them), or cancel?"
+Then ask: "Shall I proceed with everything, exclude any (name them), force-delete any of the unmerged local branches (write `<branch> (force-delete)`), or cancel?"
 
 1. **Confirmation.** Do not continue without an explicit yes to the plan exactly as last shown. A reply that excludes items or names branches is never that yes. Never include an unmerged branch on your own initiative.
 2. **Nothing to do.** If there is nothing to merge or delete (no PR, no remote branch, no local branch to delete), show the plan without the question and finish; unmerged local branches alone do not count as something to delete.
@@ -168,8 +168,8 @@ Then ask: "Shall I proceed with everything, exclude any, force-delete any of the
    - only the branch delete of a PR to be merged, by naming its head branch bare or as `<branch> (remote)`: its remote branch is kept, and so is every local entry whose name is that PR's `headRefName` or one of whose tied PRs it is (each shown as `<branch> (local, excluded)`); the PR stays under To be merged with `(branch is kept)`;
    - an already-merged branch, as `<branch>` or `<branch> (remote)`;
    - a local branch to delete, as `<branch>` or `<branch> (local)`.
-   A bare name excludes every planned delete with that name, remote and local (e.g. a name listed under both Already-merged branches to delete and Local branches to delete excludes both copies). For a name listed under both Already-merged branches to delete and Local branches to delete, `<branch> (remote)` or `<branch> (local)` excludes only that copy; for a PR's head branch, `<branch> (remote)` also keeps its local entries, as in the second bullet above.
-5. **Naming unmerged branches.** Unmerged local branches are kept unless the user names them. Only branches listed under Local — unmerged changes can be named; use the name exactly as listed there. A named branch moves into Local branches to delete marked `(unmerged, force-delete)`; its commits are lost except through the reflog. If the user names any other branch, do not add it: say why (protected by section 5, by name or through its upstream; checked out in another worktree; a step-4b error; kept as the starting branch with no commits beyond <main>; already in Local branches to delete; or not a local branch) and ask the same question again.
+   A bare name excludes every planned delete with that name, remote and local (e.g. a name listed under both Already-merged branches to delete and Local branches to delete excludes both copies); it never force-deletes an unmerged local branch with that name (6.5). For a name listed under both Already-merged branches to delete and Local branches to delete, `<branch> (remote)` or `<branch> (local)` excludes only that copy; for a PR's head branch, `<branch> (remote)` also keeps its local entries, as in the second bullet above.
+5. **Naming unmerged branches.** Unmerged local branches are kept unless the user names them, and the only way to name one is `<branch> (force-delete)`, with the name exactly as listed under Local — unmerged changes. A bare name, `<branch> (remote)` or `<branch> (local)` never names a branch, even when an unmerged local branch has that name: if it matches a planned delete, 6.4 applies and the unmerged local branch stays kept; if it matches no planned delete but is listed under Local — unmerged changes, change nothing, say that force-deleting needs `<branch> (force-delete)`, and ask the same question again. A named branch moves into Local branches to delete marked `(unmerged, force-delete)`; its commits are lost except through the reflog. If the user writes `(force-delete)` after any other branch, do not add it: say why (protected by section 5, by name or through its upstream; checked out in another worktree; a step-4b error; kept as the starting branch with no commits beyond <main>; already in Local branches to delete; or not a local branch) and ask the same question again.
 6. **Excluding a PR, local side.** Drop every local entry one of whose tied PRs is the excluded PR, then re-apply 4b.3 to both local lists (to delete and unmerged). The excluded PR's head is now the head of an open PR the plan does not merge, so 4b.3 protects a local branch with that name, whatever its 4b class. Dropped entries with that name are not reported; every other dropped entry is shown under Skipped as `<branch> (local, excluded)`.
 7. **Ask again.** After any exclusion or naming (unless 6.3 applies), show the adjusted plan, with excluded items under Skipped as `#n (excluded)`, `<branch> (remote, excluded)` or `<branch> (local, excluded)`, and ask the same question again.
 
